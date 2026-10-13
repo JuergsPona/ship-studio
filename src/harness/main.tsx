@@ -125,7 +125,11 @@ async function waitFor(selector: string, timeoutMs = 8000): Promise<HTMLElement 
  * synthetic event system reads.
  */
 function fillInput(el: HTMLElement, value: string): void {
-  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  // The setter must come from the element's own prototype: the input setter
+  // applied to a textarea throws "Illegal invocation".
+  const prototype =
+    el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
   // Deliberately an unbound setter, applied to this element: that is the whole
   // technique. `unbound-method` is guarding against losing `this`, which the
   // explicit receiver here supplies.
