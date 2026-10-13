@@ -1,0 +1,124 @@
+/* Workspace sidebar footer, trailing actions, and their empty-state supports. */
+
+/* Footer is the button itself — no inner outline, no padding gap. */
+.workspace-sidebar-footer {
+  --workspace-sidebar-footer-fade-height: calc(var(--space-32) + var(--space-16));
+  position: relative;
+  z-index: var(--z-dropdown);
+  flex-shrink: 0;
+  margin-top: calc(-1 * var(--workspace-sidebar-footer-fade-height));
+  padding: calc(var(--workspace-sidebar-footer-fade-height) + var(--space-08)) var(--space-08)
+    var(--space-08);
+  border-top: 0;
+  overflow: visible;
+}
+
+.workspace-sidebar-footer-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--button-group-spacing);
+}
+
+.workspace-sidebar-footer-actions > * {
+  position: relative;
+}
+
+/* Keep the fade attached to the fixed action group so it stays at the bottom
+ * while the sidebar content scrolls behind it. The gradient reaches full
+ * opacity exactly at the scroll area's clip line (fade height minus the 8px
+ * gap between them), so rows are fully invisible before they're cut off, then
+ * stay solid behind the buttons and the footer's bottom padding. */
+.workspace-sidebar-footer-actions::before {
+  position: absolute;
+  inset-inline: calc(-1 * var(--space-08));
+  top: calc(-1 * var(--workspace-sidebar-footer-fade-height));
+  bottom: calc(-1 * var(--space-08));
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--surface-panel) calc(var(--workspace-sidebar-footer-fade-height) - var(--space-08))
+  );
+  content: '';
+  pointer-events: none;
+}
+
+/* Belt-and-suspenders against a horizontal scrollbar appearing inside a
+ * project body when a long tab title would otherwise force it. The row
+ * labels already ellipsize, but if a future descendant forgets min-width: 0
+ * in a flex chain, this caps the damage. */
+.workspace-sidebar .sidebar-project-body,
+.workspace-sidebar .sidebar-project-body-inner,
+.workspace-sidebar .sidebar-section-list {
+  overflow-x: hidden;
+}
+
+/* The Open project action is a full-bleed row, matching the project cards
+ * above it. Its own content padding remains so the icon and label stay
+ * comfortably spaced. */
+.workspace-sidebar-active-actions {
+  width: 100%;
+  margin-top: 0;
+  padding: 0;
+}
+
+.workspace-sidebar-add-project {
+  min-width: 0;
+  width: 100%;
+  height: var(--size-sidebar-project-row);
+  min-height: var(--size-sidebar-project-row);
+  border-radius: 0;
+  color: var(--text-faint);
+  justify-content: center;
+}
+
+.workspace-sidebar.is-hidden .workspace-sidebar-active-actions {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.workspace-sidebar.is-hidden .workspace-sidebar-add-project {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: var(--control-height-standard);
+  min-height: var(--control-height-standard);
+  flex: 0 0 var(--control-height-standard);
+  padding: 0;
+}
+
+.workspace-sidebar-support,
+.workspace-sidebar-settings {
+  flex: 0 0 var(--control-height-standard);
+}
+
+/* Project picker styles removed — replaced by the command palette (⌘O). */
+
+/* PROTOTYPE (workflows/inbox): the Inbox nav button carries an unread badge.
+   The wrapper exists only to anchor the badge to the icon button. */
+.workspace-sidebar-inbox {
+  position: relative;
+  display: inline-flex;
+}
+
+.workspace-sidebar-inbox-badge {
+  position: absolute;
+  top: calc(var(--spacing-2xs) * -1);
+  right: calc(var(--spacing-2xs) * -1);
+  min-width: var(--spacing-md);
+  height: var(--spacing-md);
+  padding: 0 var(--spacing-2xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--accent-error);
+  color: var(--text-white);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-label);
+  line-height: 1;
+  pointer-events: none;
+}

@@ -1712,7 +1712,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 47
+      "consumerCount": 46
     },
     {
       "name": "--button-radius",
@@ -1856,7 +1856,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 3
+      "consumerCount": 5
     },
     {
       "name": "--control-height-standard",
@@ -5015,7 +5015,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 152
+      "consumerCount": 153
     },
     {
       "name": "--spacing-xl",

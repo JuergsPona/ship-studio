@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { TeamThreadsPanel } from './TeamThreadsPanel';
 import type { TeamThread } from '../../lib/team';
 import { clearThreadSelection } from '../../lib/teamStore';
@@ -24,7 +24,9 @@ function thread(id: string, pin: number, body: string): TeamThread {
     pin,
     resolved: false,
     resolvedBy: null,
-    messages: [{ id, actor: me, at: Date.now(), body }],
+    // Stable fixture times keep the newest-thread selection independent of
+    // how quickly the test creates each thread.
+    messages: [{ id, actor: me, at: 1_700_000_000_000 + pin, body }],
   };
 }
 
@@ -37,9 +39,11 @@ it('lists the open threads it was given', () => {
     />
   );
 
-  // Twice each: once as the row preview, once in the reader beside it.
-  expect(screen.getAllByText('Make this smaller').length).toBeGreaterThan(0);
-  expect(screen.getByText('Wrong copy')).toBeInTheDocument();
+  const threadList = within(screen.getByRole('listbox', { name: 'Comment threads' }));
+  const threadOptions = threadList.getAllByRole('option');
+  expect(threadOptions).toHaveLength(2);
+  expect(threadList.getByRole('option', { name: /Make this smaller/ })).toBeInTheDocument();
+  expect(threadList.getByRole('option', { name: /Wrong copy/ })).toBeInTheDocument();
   expect(screen.queryByText('No open comments')).not.toBeInTheDocument();
 });
 
