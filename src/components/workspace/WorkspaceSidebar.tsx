@@ -1170,7 +1170,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     !filterLower &&
     ((currentExternalRow === null && activeRows.length > 1) ||
       (canMoveBetweenProjectGroups && visibleActive.length > 0));
-  const hasSortableProjectGroups = canSortPinned || canSortActive;
+  // The cross-group drop targets render whenever moving between groups is
+  // possible — even with both groups empty — and they need a scope to mount in.
+  const hasSortableProjectGroups = canSortPinned || canSortActive || canMoveBetweenProjectGroups;
 
   // Force-open the group containing the current project. We honor the
   // user's manual collapsed state for the OTHER group.
