@@ -680,7 +680,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--pixel-loader-size-sm);
+  gap: var(--spacing-xs);
+  min-width: var(--pixel-loader-size-sm);
   height: var(--pixel-loader-size-sm);
   flex-shrink: 0;
 }

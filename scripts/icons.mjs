@@ -135,6 +135,10 @@ function validateAssets({ iconsDirectory = iconsRoot, graphicsDirectory = graphi
   const errors = [];
   const files = [...walk(iconsDirectory), ...walk(graphicsDirectory)];
   const basenames = new Map();
+  // Preserve and validate the original exported icon artwork under this
+  // unused legacy folder, but do not treat it as part of the active asset
+  // namespace for duplicate-name checks.
+  const legacyIconExport = path.join(iconsDirectory, 'old-icons', 'Icon');
 
   for (const file of files) {
     errors.push(...validateSvg(file));

@@ -97,8 +97,9 @@ struct StaticServerInstance {
     watcher_shutdown_tx: Option<oneshot::Sender<()>>,
 }
 
-/// Maps window_label -> StaticServerInstance
-static STATIC_SERVER_INSTANCES: LazyLock<Mutex<HashMap<String, StaticServerInstance>>> =
+/// Maps (window_label, project_path) -> StaticServerInstance so hot project
+/// sessions can keep independent static previews alive in the background.
+static STATIC_SERVER_INSTANCES: LazyLock<Mutex<HashMap<(String, String), StaticServerInstance>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Start a static file server for the given window, serving files from `project_path`.
@@ -108,11 +109,13 @@ pub async fn start_static_server(
     app: tauri::AppHandle,
     window_label: String,
     project_path: String,
+    serve_path: String,
 ) -> Result<u16, String> {
-    // Stop any existing server for this window
-    stop_static_server(&window_label);
+    // Re-entering the same project is idempotent. Another project in this
+    // window owns a separate server and must stay alive.
+    stop_static_server(&window_label, &project_path).await;
 
-    let project_root = PathBuf::from(&project_path);
+    let project_root = PathBuf::from(&serve_path);
     if !project_root.exists() || !project_root.is_dir() {
         return Err(format!(
             "Project path does not exist or is not a directory: {project_path}"
@@ -151,6 +154,11 @@ pub async fn start_static_server(
 
         loop {
             tokio::select! {
+                biased;
+                _ = &mut shutdown_rx => {
+                    tracing::info!("[StaticServer] Shutting down on port {}", port);
+                    break;
+                }
                 result = listener.accept() => {
                     match result {
                         Ok((stream, addr)) => {
@@ -162,17 +170,17 @@ pub async fn start_static_server(
                         }
                     }
                 }
-                _ = &mut shutdown_rx => {
-                    tracing::info!("[StaticServer] Shutting down on port {}", port);
-                    break;
-                }
             }
         }
     });
 
     // Start file watcher for live reload
-    let watcher_shutdown_tx =
-        start_file_watcher(app, window_label.clone(), PathBuf::from(&project_path));
+    let watcher_shutdown_tx = start_file_watcher(
+        app,
+        window_label.clone(),
+        project_path.clone(),
+        PathBuf::from(&serve_path),
+    );
 
     let instance = StaticServerInstance {
         port,
@@ -184,7 +192,7 @@ pub async fn start_static_server(
     STATIC_SERVER_INSTANCES
         .lock()
         .map_err(|e| format!("Failed to acquire static server lock: {e}"))?
-        .insert(window_label.clone(), instance);
+        .insert((window_label.clone(), project_path.clone()), instance);
 
     tracing::info!(
         "[StaticServer] Registered for window '{}' on port {}",
@@ -195,39 +203,79 @@ pub async fn start_static_server(
 }
 
 /// Stop the static server for the given window.
-pub fn stop_static_server(window_label: &str) {
-    if let Ok(mut instances) = STATIC_SERVER_INSTANCES.lock() {
-        if let Some(mut instance) = instances.remove(window_label) {
-            if let Some(tx) = instance.shutdown_tx.take() {
-                let _ = tx.send(());
-            }
-            if let Some(tx) = instance.watcher_shutdown_tx.take() {
-                let _ = tx.send(());
-            }
-            tracing::info!(
-                "[StaticServer] Stopped server for window '{}' (port {})",
-                window_label,
-                instance.port
-            );
+pub async fn stop_static_server(window_label: &str, project_path: &str) {
+    let instance = STATIC_SERVER_INSTANCES
+        .lock()
+        .ok()
+        .and_then(|mut instances| {
+            instances.remove(&(window_label.to_string(), project_path.to_string()))
+        });
+    if let Some(mut instance) = instance {
+        if let Some(tx) = instance.shutdown_tx.take() {
+            let _ = tx.send(());
         }
+        if let Some(tx) = instance.watcher_shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+        let _ = instance._task_handle.await;
+        tracing::info!(
+            "[StaticServer] Stopped server for window '{}' project '{}' (port {})",
+            window_label,
+            project_path,
+            instance.port
+        );
+    }
+}
+
+/// Stop every static project server owned by one closing window.
+pub async fn stop_static_servers_for_window(window_label: &str) {
+    let stopped = if let Ok(mut instances) = STATIC_SERVER_INSTANCES.lock() {
+        let keys: Vec<_> = instances
+            .keys()
+            .filter(|(label, _)| label == window_label)
+            .cloned()
+            .collect();
+        keys.into_iter()
+            .filter_map(|key| instances.remove(&key).map(|instance| (key, instance)))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    for (key, mut instance) in stopped {
+        if let Some(tx) = instance.shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+        if let Some(tx) = instance.watcher_shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+        let _ = instance._task_handle.await;
+        tracing::info!(
+            "[StaticServer] Stopped server for window '{}' project '{}' (window closed)",
+            key.0,
+            key.1
+        );
     }
 }
 
 /// Stop all running static servers (called during app cleanup).
-pub fn stop_all_static_servers() {
-    if let Ok(mut instances) = STATIC_SERVER_INSTANCES.lock() {
-        for (label, mut instance) in instances.drain() {
-            if let Some(tx) = instance.shutdown_tx.take() {
-                let _ = tx.send(());
-            }
-            if let Some(tx) = instance.watcher_shutdown_tx.take() {
-                let _ = tx.send(());
-            }
-            tracing::info!(
-                "[StaticServer] Stopped server for window '{}' (cleanup)",
-                label
-            );
+pub async fn stop_all_static_servers() {
+    let stopped = STATIC_SERVER_INSTANCES
+        .lock()
+        .map(|mut instances| instances.drain().collect::<Vec<_>>())
+        .unwrap_or_default();
+    for ((label, project_path), mut instance) in stopped {
+        if let Some(tx) = instance.shutdown_tx.take() {
+            let _ = tx.send(());
         }
+        if let Some(tx) = instance.watcher_shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+        let _ = instance._task_handle.await;
+        tracing::info!(
+            "[StaticServer] Stopped server for window '{}' project '{}' (cleanup)",
+            label,
+            project_path
+        );
     }
 }
 
@@ -255,6 +303,7 @@ fn should_trigger_reload(path: &Path) -> bool {
 fn start_file_watcher(
     app: tauri::AppHandle,
     window_label: String,
+    project_path_for_event: String,
     project_path: PathBuf,
 ) -> oneshot::Sender<()> {
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
@@ -321,6 +370,7 @@ fn start_file_watcher(
 
     // Spawn a tokio task to receive events and emit Tauri events with debouncing
     let label_clone = window_label.clone();
+    let project_path_clone = project_path_for_event;
     tokio::spawn(async move {
         let mut last_emit = Instant::now() - Duration::from_secs(1); // Allow immediate first event
 
@@ -343,7 +393,10 @@ fn start_file_watcher(
                     tracing::debug!("[FileWatcher] Emitting static-file-changed for '{}'", label_clone);
                     let _ = app.emit(
                         "static-file-changed",
-                        serde_json::json!({ "windowLabel": label_clone }),
+                        serde_json::json!({
+                            "windowLabel": label_clone,
+                            "projectPath": project_path_clone,
+                        }),
                     );
                 }
                 _ = &mut shutdown_rx => {
@@ -612,6 +665,111 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+    use tokio::net::TcpStream;
+
+    struct TestStaticServer {
+        port: u16,
+        watcher_task: JoinHandle<()>,
+    }
+
+    async fn register_test_static_server(
+        window_label: &str,
+        project_path: &str,
+    ) -> TestStaticServer {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
+        let task_handle = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = &mut shutdown_rx => break,
+                    accepted = listener.accept() => {
+                        if let Ok((stream, _)) = accepted {
+                            drop(stream);
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+
+        let (watcher_shutdown_tx, watcher_shutdown_rx) = oneshot::channel::<()>();
+        let watcher_task = tokio::spawn(async move {
+            let _ = watcher_shutdown_rx.await;
+        });
+        STATIC_SERVER_INSTANCES.lock().unwrap().insert(
+            (window_label.to_string(), project_path.to_string()),
+            StaticServerInstance {
+                port,
+                shutdown_tx: Some(shutdown_tx),
+                _task_handle: task_handle,
+                watcher_shutdown_tx: Some(watcher_shutdown_tx),
+            },
+        );
+
+        TestStaticServer { port, watcher_task }
+    }
+
+    async fn wait_for_static_port_open(port: u16) {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn static_server_cleanup_is_scoped_to_project_and_window() {
+        let window = format!("static-scope-{}", uuid::Uuid::new_v4());
+        let other_window = format!("static-scope-{}", uuid::Uuid::new_v4());
+        let a = register_test_static_server(&window, "/project/a").await;
+        let b = register_test_static_server(&window, "/project/b").await;
+        let c = register_test_static_server(&other_window, "/project/c").await;
+
+        stop_static_server(&window, "/project/a").await;
+        a.watcher_task.await.unwrap();
+        // The stop call awaits the listener task, so its port is released on
+        // return. A refusal probe is racy on Windows: another parallel test
+        // can bind the same ephemeral port before this test observes it.
+        wait_for_static_port_open(b.port).await;
+        wait_for_static_port_open(c.port).await;
+        {
+            let instances = STATIC_SERVER_INSTANCES.lock().unwrap();
+            assert!(!instances.contains_key(&(window.clone(), "/project/a".into())));
+            assert_eq!(
+                instances
+                    .get(&(window.clone(), "/project/b".into()))
+                    .unwrap()
+                    .port,
+                b.port
+            );
+            assert_eq!(
+                instances
+                    .get(&(other_window.clone(), "/project/c".into()))
+                    .unwrap()
+                    .port,
+                c.port
+            );
+        }
+
+        stop_static_servers_for_window(&window).await;
+        b.watcher_task.await.unwrap();
+        wait_for_static_port_open(c.port).await;
+        {
+            let instances = STATIC_SERVER_INSTANCES.lock().unwrap();
+            assert!(!instances.contains_key(&(window.clone(), "/project/b".into())));
+            assert!(instances.contains_key(&(other_window.clone(), "/project/c".into())));
+        }
+
+        stop_static_servers_for_window(&other_window).await;
+        c.watcher_task.await.unwrap();
+    }
 
     // ===== #575: fd-pressure classification + bounded read retry =====
 

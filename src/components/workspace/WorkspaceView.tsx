@@ -100,6 +100,8 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
   onReorderProjects,
   onOpenProjectPicker,
   isProjectDevServerRunning,
+  getProjectDevServerSnapshot,
+  devServerLifecycleVersion,
   isSidebarHidden,
   onToggleSidebar,
   compactWorkspaceToolbarEnabled,
@@ -107,6 +109,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
   // Window-width gate for the compact layout. Purely reactive — no Tauri
   // resize calls, no pinning. See src/hooks/useIsCompact.ts for the threshold.
   const isCompact = useIsCompact();
+  const currentDevServerSnapshot = getProjectDevServerSnapshot(currentProject.path);
 
   // Destructure domain groups for readability in JSX
   const {
@@ -821,6 +824,8 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
               onRenameProject={onRenameProject}
               onTogglePinProject={onTogglePinProject}
               onStopDevServer={onStopDevServer}
+              getProjectDevServerSnapshot={getProjectDevServerSnapshot}
+              devServerLifecycleVersion={devServerLifecycleVersion}
               currentProjectPath={currentProject.path}
               currentProjectName={currentProject.name}
               onSelectProject={onSelectProject}
@@ -859,7 +864,9 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
                 isWebProject || customDevCommand ? () => void handleRestartDevServer() : undefined
               }
               devServerUrl={
-                isWebProject && devServerPort > 0 ? `http://localhost:${devServerPort}` : undefined
+                isWebProject && currentDevServerSnapshot.address
+                  ? `http://${currentDevServerSnapshot.address}`
+                  : undefined
               }
               isProjectDevServerRunning={isProjectDevServerRunning}
               worktrees={worktree.worktrees}
@@ -898,6 +905,8 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
                       hasPreview={hasPreview}
                       projectTypeResolved={projectTypeResolved}
                       previewConnectionEnabled={knownDevServerPort !== null}
+                      serverAlreadyRunning={currentDevServerSnapshot.status === 'ready'}
+                      serverInstanceId={currentDevServerSnapshot.instanceId}
                       projectType={projectType}
                       isWebProject={isWebProject}
                       mobilePreviewAvailable={mobilePreviewAvailable}

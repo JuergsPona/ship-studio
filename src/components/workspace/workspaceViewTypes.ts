@@ -4,7 +4,7 @@ import type { BranchInfo, PullRequestInfo } from '../../lib/branches';
 import type { PluginThemeData } from '../../contexts/PluginContext';
 import type { HealthTabPanelRef } from '../code/HealthTabPanel';
 import type { ChangedFile } from '../../lib/git';
-import type { DevServerUnexpectedExit } from '../../hooks/useDevServer';
+import type { DevServerUnexpectedExit, ProjectDevServerSnapshot } from '../../hooks/useDevServer';
 import type { AuthTerminalConfig, IntegrationState } from '../../hooks/useIntegrationStatus';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import type { Project } from '../../lib/project';
@@ -323,6 +323,10 @@ export interface WorkspaceViewProps {
   /** Predicate: is a dev server currently tracked for the given project path?
    *  Used by the sidebar to populate background projects' Commands section. */
   isProjectDevServerRunning: (projectPath: string) => boolean;
+  /** Known server address/lifecycle for project rows and warm Preview reuse. */
+  getProjectDevServerSnapshot: (projectPath: string) => ProjectDevServerSnapshot;
+  /** Re-render project rows when background server lifecycles change. */
+  devServerLifecycleVersion: number;
   /** Whether the shared project sidebar is in its compact state. */
   isSidebarHidden: boolean;
   /** Toggle the shared project sidebar between full and compact states. */
