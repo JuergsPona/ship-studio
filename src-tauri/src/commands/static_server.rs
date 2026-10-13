@@ -26,10 +26,15 @@ pub async fn start_static_server(
             reason: "The static preview folder must be inside the project".into(),
         });
     }
+    // Key the instance (and its `static-file-changed` events) by the path the
+    // frontend sent, not the canonicalized one: `stop_static_server` and the
+    // Preview's event filter both compare against that exact string, so a
+    // symlinked or differently-cased path would otherwise leak the server and
+    // silence live reload. Containment was validated above.
     crate::static_server::start_static_server(
         app,
         window_label,
-        validated.to_string_lossy().to_string(),
+        project_path,
         validated_serve_path.to_string_lossy().to_string(),
     )
     .await
