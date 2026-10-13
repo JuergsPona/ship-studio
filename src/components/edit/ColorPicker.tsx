@@ -611,7 +611,10 @@ export function ColorPicker({
         : !effectiveCategory
           ? 'Choose a contrast category to check the required level.'
           : 'Contrast ratio is unavailable for these colors.';
-  const contrastRatioLabel = contrastValue === null ? '— : 1' : `${contrastValue.toFixed(2)} : 1`;
+  // Truncate rather than round: WCAG compares the unrounded ratio, so 4.497 must
+  // read 4.49 next to its AA failure, never 4.50.
+  const contrastRatioLabel =
+    contrastValue === null ? '— : 1' : `${(Math.floor(contrastValue * 100) / 100).toFixed(2)} : 1`;
   const hasAnyContrastColor = Boolean(foregroundColor || backgroundColor);
   const copyValue = toFormat(localValue, format) || rgbaToCss(rgba);
   const copyLabel = isCopied ? 'Copied color' : copyError ? 'Copy color failed' : 'Copy color';

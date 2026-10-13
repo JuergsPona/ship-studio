@@ -198,6 +198,24 @@ describe('ColorPicker', () => {
     ).toBeInTheDocument();
   });
 
+  it('never rounds a failing ratio up to the threshold it fails', () => {
+    // rgb(100 123 125) on white is 4.4956:1 — rounding would print 4.50 next to "Fail".
+    render(
+      <ColorPicker
+        value="#647b7d"
+        contrastContext={{ backgroundColor: '#ffffff', category: 'normal-text' }}
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contrast checker' }));
+    expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'Fail AA, 4.5:1 required');
+    expect(
+      screen.getByRole('button', { name: /Contrast color pair, 4\.49 : 1/ })
+    ).toBeInTheDocument();
+  });
+
   it('exposes the primary format fields', () => {
     renderPicker('rgba(10, 20, 30, 0.5)');
     expect(screen.getByRole('tab', { name: 'RGB' })).toHaveAttribute('aria-selected', 'true');

@@ -42,6 +42,21 @@ describe('color contrast calculations', () => {
     expect(contrastRatio('not a color', '#fff')).toBeNull();
   });
 
+  it('matches published WCAG reference ratios on either side of the AA line', () => {
+    // #767676 is the classic lightest grey that passes AA on white; #777777 fails.
+    expect(contrastRatio('#767676', '#fff')).toBeCloseTo(4.5422, 4);
+    expect(contrastRatio('#777777', '#fff')).toBeCloseTo(4.4781, 4);
+    // Ratio is symmetric in its arguments.
+    expect(contrastRatio('#fff', '#767676')).toBeCloseTo(4.5422, 4);
+    // Linear segment of the sRGB transfer (channel <= 0.04045): rgb(10 10 10)
+    // has L = (10/255)/12.92, so its ratio on black is (L + 0.05) / 0.05.
+    expect(contrastRatio('rgb(10 10 10)', '#000')).toBeCloseTo((10 / 255 / 12.92 + 0.05) / 0.05, 6);
+    // Pure primaries weight by the Rec. 709 coefficients.
+    expect(contrastRatio('#f00', '#000')).toBeCloseTo((0.2126 + 0.05) / 0.05, 6);
+    expect(contrastRatio('#0f0', '#000')).toBeCloseTo((0.7152 + 0.05) / 0.05, 6);
+    expect(contrastRatio('#00f', '#000')).toBeCloseTo((0.0722 + 0.05) / 0.05, 6);
+  });
+
   it('uses WCAG AA and AAA thresholds for text and graphics', () => {
     expect(contrastThreshold('normal-text', 'AA')).toBe(4.5);
     expect(contrastThreshold('normal-text', 'AAA')).toBe(7);
