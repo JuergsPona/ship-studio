@@ -86,6 +86,11 @@ import {
   subscribeActiveProjectOrder,
 } from '../../lib/activeProjectOrder';
 
+export type ToggleProjectPinHandler = (
+  projectPath: string,
+  shouldPin: boolean
+) => void | boolean | Promise<void | boolean>;
+
 type SectionId = 'agents' | 'terminals' | 'worktrees' | 'commands';
 type GroupId = 'pinned' | 'projects';
 const WORKSPACE_SWITCHER_MENU_GUTTER = 8;
@@ -158,7 +163,7 @@ interface Props {
   /** Rename a project folder and update the owning app state. */
   onRenameProject?: (projectPath: string, newName: string) => Promise<void>;
   /** Toggle whether a project is pinned in the sidebar. */
-  onTogglePinProject?: (projectPath: string, shouldPin: boolean) => void | Promise<void>;
+  onTogglePinProject?: ToggleProjectPinHandler;
   /**
    * Switch to a non-current project and focus a specific tab (by session id)
    * once the restore completes. The caller is responsible for persisting
@@ -978,22 +983,90 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   const visibleActive = [...(currentExternalRow ? [currentExternalRow] : []), ...activeRows].filter(
     (p) => matchesFilter(p.fallbackName)
   );
+  const canMoveBetweenProjectGroups =
+    onReorderProjects !== undefined &&
+    onTogglePinProject !== undefined &&
+    !isSidebarHidden &&
+    !filterLower;
+  const currentExternalPath = currentExternalRow?.projectPath ?? null;
   const canSortPinned =
-    onReorderProjects !== undefined && !isSidebarHidden && !filterLower && pinnedRows.length > 1;
+    onReorderProjects !== undefined &&
+    !isSidebarHidden &&
+    !filterLower &&
+    (pinnedRows.length > 1 || (canMoveBetweenProjectGroups && pinnedRows.length > 0));
 
-  const handlePinnedMove = useCallback(
+  const handleProjectMove = useCallback(
     async (move: DragSortMove) => {
-      if (!onReorderProjects || !move.projectedOrder) return;
-      await onReorderProjects(move.projectedOrder.map(String));
+      if (!move.projectedOrder) return;
+      const projectPath = String(move.activeId);
+      const destinationIndex = Math.max(0, move.to.index);
+
+      if (move.from.group === move.to.group) {
+        if (move.from.group === 'pinned') {
+          await onReorderProjects?.(move.projectedOrder.map(String));
+        } else {
+          setActiveProjectOrder(move.projectedOrder.map(String));
+        }
+        return;
+      }
+
+      if (!canMoveBetweenProjectGroups || !onTogglePinProject || !onReorderProjects) return;
+      const shouldPin = move.to.group === 'pinned';
+      const succeeded = await onTogglePinProject(projectPath, shouldPin);
+      if (succeeded === false) return;
+
+      const projectFamily = familyKeyOf(projectPath);
+      const destinationPath = shouldPin ? projectPath : projectFamily;
+      // `move.to.index` counts the destination group's registered rows, which
+      // for Active includes the synthesized current-project row. Build the
+      // order from the same list so the drop lands where the slot was shown.
+      const baseOrder = shouldPin
+        ? pinnedRows.map((row) => row.projectPath)
+        : [
+            ...(currentExternalPath ? [currentExternalPath] : []),
+            ...activeRows.map((row) => row.projectPath),
+          ];
+      // Unpinning a worktree collapses it into its family row, which may
+      // already be listed; removing it first shifts later indexes down by one.
+      const existingIndex = baseOrder.indexOf(destinationPath);
+      const insertAt =
+        existingIndex >= 0 && existingIndex < destinationIndex
+          ? destinationIndex - 1
+          : destinationIndex;
+      const nextOrder = baseOrder.filter((path) => path !== destinationPath);
+      nextOrder.splice(Math.min(insertAt, nextOrder.length), 0, destinationPath);
+      if (shouldPin) {
+        await onReorderProjects(nextOrder);
+        return;
+      }
+      setActiveProjectOrder(nextOrder);
+
+      // Active rows are backed by live sessions. Open a cold saved project
+      // after unpinning so the destination row exists and stays visible.
+      const hasSessionInFamily = sessionRegistry
+        .snapshotAll()
+        .some((session) => familyKeyOf(session.projectPath) === projectFamily);
+      if (!hasSessionInFamily && currentFamily !== projectFamily) {
+        onSelectProject(projectPath);
+      }
     },
-    [onReorderProjects]
+    [
+      activeRows,
+      canMoveBetweenProjectGroups,
+      currentExternalPath,
+      currentFamily,
+      onReorderProjects,
+      onSelectProject,
+      onTogglePinProject,
+      pinnedRows,
+    ]
   );
   const canSortActive =
-    !isSidebarHidden && !filterLower && currentExternalRow === null && activeRows.length > 1;
-  const handleActiveMove = useCallback((move: DragSortMove) => {
-    if (!move.projectedOrder) return;
-    setActiveProjectOrder(move.projectedOrder.map(String));
-  }, []);
+    !isSidebarHidden &&
+    !filterLower &&
+    ((currentExternalRow === null && activeRows.length > 1) ||
+      (canMoveBetweenProjectGroups && visibleActive.length > 0));
+  const hasSortableProjectGroups = canSortPinned || canSortActive;
 
   // Force-open the group containing the current project. We honor the
   // user's manual collapsed state for the OTHER group.
@@ -1324,6 +1397,153 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
       : `${sidebarWidth}px`,
   } as CSSProperties;
 
+  const pinnedGroupEmpty = visiblePinned.length === 0 && !filterLower;
+  const activeGroupEmpty = visibleActive.length === 0 && !filterLower;
+  const renderGroupDropTarget = (
+    group: 'pinned' | 'active',
+    id: string,
+    index: number,
+    children: ReactNode
+  ) =>
+    canMoveBetweenProjectGroups ? (
+      <DragSortItem
+        id={id}
+        group={group}
+        index={index}
+        label={`${group === 'pinned' ? 'Pinned' : 'Active'} projects`}
+        targetOnly
+        showTargetIndicator
+        className="sidebar-project-group-drop-target"
+      >
+        {children}
+      </DragSortItem>
+    ) : (
+      children
+    );
+  const renderProjectGroup = (
+    group: 'pinned' | 'active',
+    count: number,
+    expanded: boolean,
+    empty: boolean,
+    rows: ReactNode
+  ) => {
+    const isPinned = group === 'pinned';
+    const label = isPinned ? 'Pinned' : 'Active';
+    const headerState = expanded ? 'expanded' : !isPinned && empty ? 'empty' : 'collapsed';
+    const header = (
+      <SidebarGroupHeader
+        label={label}
+        count={count}
+        collapsed={!expanded}
+        onToggle={() => toggleGroup(isPinned ? 'pinned' : 'projects')}
+        emptyHint={isPinned ? 'Pin a project from the Projects list below' : undefined}
+      />
+    );
+    return (
+      <>
+        {isSidebarHidden ? (
+          <CompactSidebarGroupMarker label={label} />
+        ) : (
+          renderGroupDropTarget(
+            group,
+            `sidebar-${headerState}-${group}-header-drop-target`,
+            -1,
+            header
+          )
+        )}
+        {(isSidebarHidden || expanded) &&
+          (empty
+            ? !isSidebarHidden &&
+              renderGroupDropTarget(
+                group,
+                `sidebar-empty-${group}-drop-target`,
+                0,
+                <div className="sidebar-group-empty">
+                  {isPinned ? 'Nothing pinned yet' : 'No active projects yet.'}
+                </div>
+              )
+            : rows)}
+      </>
+    );
+  };
+  const projectActions = (
+    <div className="workspace-sidebar-active-actions">
+      <Button
+        variant="ghost"
+        width="fill"
+        className="workspace-sidebar-add-project"
+        onClick={onOpenProjectPicker}
+        title="Open a project"
+      >
+        <AddIcon size={16} />
+        <span>Open project</span>
+      </Button>
+    </div>
+  );
+  const activeProjectSection = (
+    <>
+      {renderProjectGroup(
+        'active',
+        activeRows.length + (currentExternalRow ? 1 : 0),
+        activeOpen,
+        activeGroupEmpty,
+        visibleActive.map((row, index) => renderProjectRow(row, canSortActive, index, 'active'))
+      )}
+
+      {canMoveBetweenProjectGroups ? (
+        // Inserting into Pinned opens space before this section in the shared list flow.
+        <DragSortItem
+          id="sidebar-active-project-actions-anchor"
+          group="active"
+          index={visibleActive.length}
+          label="Open project action"
+          targetOnly
+          targetDisabled
+          crossGroupPlaceholderFollower
+          className="workspace-sidebar-active-actions-anchor"
+        >
+          {projectActions}
+        </DragSortItem>
+      ) : (
+        projectActions
+      )}
+    </>
+  );
+  const projectGroups = (
+    <>
+      {renderProjectGroup(
+        'pinned',
+        pinnedRows.length,
+        pinnedOpen,
+        pinnedGroupEmpty,
+        visiblePinned.map((row) =>
+          renderProjectRow(
+            row,
+            canSortPinned,
+            pinnedRows.findIndex((candidate) => candidate.projectPath === row.projectPath)
+          )
+        )
+      )}
+
+      {canMoveBetweenProjectGroups ? (
+        <DragSortItem
+          id="sidebar-active-section-placeholder-follower"
+          group="pinned"
+          index={pinnedRows.length}
+          label="Active projects section"
+          targetOnly
+          targetDisabled
+          crossGroupPlaceholderFollower
+          className="workspace-sidebar-active-section-anchor"
+        >
+          {activeProjectSection}
+        </DragSortItem>
+      ) : (
+        activeProjectSection
+      )}
+    </>
+  );
+
   return (
     <>
       <aside
@@ -1405,84 +1625,29 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         <SpotifyWidget isSidebarHidden={isSidebarHidden} />
 
         <div className="workspace-sidebar-scroll">
-          {isSidebarHidden ? (
-            <CompactSidebarGroupMarker label="Pinned" />
-          ) : (
-            <SidebarGroupHeader
-              label="Pinned"
-              count={pinnedRows.length}
-              collapsed={!pinnedOpen}
-              onToggle={() => toggleGroup('pinned')}
-              emptyHint="Pin a project from the Projects list below"
-            />
-          )}
-          {(isSidebarHidden || pinnedOpen) &&
-            (visiblePinned.length === 0 && !filterLower ? (
-              !isSidebarHidden && <div className="sidebar-group-empty">Nothing pinned yet</div>
-            ) : canSortPinned ? (
-              <DragSortScope
-                axis="vertical"
-                items={pinnedRows.map((row) => row.projectPath)}
-                label="Pinned projects"
-                onMove={handlePinnedMove}
-              >
-                {visiblePinned.map((row) =>
-                  renderProjectRow(
-                    row,
-                    true,
-                    pinnedRows.findIndex((candidate) => candidate.projectPath === row.projectPath)
-                  )
-                )}
-              </DragSortScope>
-            ) : (
-              visiblePinned.map((row) => renderProjectRow(row))
-            ))}
-
-          {isSidebarHidden ? (
-            <CompactSidebarGroupMarker label="Active" />
-          ) : (
-            <SidebarGroupHeader
-              label="Active"
-              count={activeRows.length + (currentExternalRow ? 1 : 0)}
-              collapsed={!activeOpen}
-              onToggle={() => toggleGroup('projects')}
-            />
-          )}
-          {(isSidebarHidden || activeOpen) &&
-            (visibleActive.length === 0 && !filterLower ? (
-              !isSidebarHidden && <div className="sidebar-group-empty">No active projects yet.</div>
-            ) : canSortActive ? (
-              <DragSortScope
-                axis="vertical"
-                items={activeRows.map((row) => row.projectPath)}
-                label="Active projects"
-                onMove={handleActiveMove}
-              >
-                {visibleActive.map((row) =>
-                  renderProjectRow(
-                    row,
-                    true,
-                    activeRows.findIndex((candidate) => candidate.projectPath === row.projectPath),
-                    'active'
-                  )
-                )}
-              </DragSortScope>
-            ) : (
-              visibleActive.map((row) => renderProjectRow(row))
-            ))}
-
-          <div className="workspace-sidebar-active-actions">
-            <Button
-              variant="ghost"
-              width="fill"
-              className="workspace-sidebar-add-project"
-              onClick={onOpenProjectPicker}
-              title="Open a project"
+          {hasSortableProjectGroups ? (
+            <DragSortScope
+              axis="vertical"
+              allowCrossGroup={canMoveBetweenProjectGroups}
+              placeholderClassName="workspace-sidebar-project-drop-placeholder"
+              placementForTarget={(target, point) => {
+                if (target.targetOnly) {
+                  return String(target.id).includes('header-drop-target') ? 'after' : 'before';
+                }
+                return point.y < target.rect.top + target.rect.height / 2 ? 'before' : 'after';
+              }}
+              items={[
+                ...pinnedRows.map((row) => row.projectPath),
+                ...visibleActive.map((row) => row.projectPath),
+              ]}
+              label="Workspace projects"
+              onMove={handleProjectMove}
             >
-              <AddIcon size={16} />
-              <span>Open project</span>
-            </Button>
-          </div>
+              {projectGroups}
+            </DragSortScope>
+          ) : (
+            projectGroups
+          )}
         </div>
 
         <div className="workspace-sidebar-footer">
@@ -1986,9 +2151,11 @@ function ProjectGroup({
             initials={initials}
             shortcutNumber={shortcutNumber}
             isCurrent={isCurrent}
+            isExpanded={isExpanded}
             dot={dot}
           />
         }
+        collapseWhenDragging
         className={`sidebar-project ${isCurrent ? 'is-current' : ''}`}
       >
         {projectContent}
@@ -2004,12 +2171,14 @@ function ProjectRowDragOverlay({
   initials,
   shortcutNumber,
   isCurrent,
+  isExpanded,
   dot,
 }: {
   row: PinnedProjectRow;
   initials: string;
   shortcutNumber: number | null;
   isCurrent: boolean;
+  isExpanded: boolean;
   dot: SidebarItem['dotState'];
 }) {
   return (
@@ -2022,6 +2191,21 @@ function ProjectRowDragOverlay({
       <span className="sidebar-project-drag-handle sidebar-project-drag-handle--overlay">
         <DragHandleIcon size={14} />
       </span>
+      <IconButton
+        className="sidebar-project-control sidebar-project-chevron"
+        variant="ghost"
+        size="compact"
+        icon={
+          <ChevronIcon
+            size={10}
+            className={isExpanded ? 'chevron-expanded' : 'chevron-collapsed'}
+          />
+        }
+        aria-expanded={isExpanded}
+        aria-label={isExpanded ? 'Collapse project' : 'Expand project'}
+        aria-hidden="true"
+        tabIndex={-1}
+      />
       <span className={`sidebar-project-initials ${shortcutNumber !== null ? 'is-shortcut' : ''}`}>
         {shortcutNumber !== null ? kbd('mod', String(shortcutNumber)) : initials}
       </span>
