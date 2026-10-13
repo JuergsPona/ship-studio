@@ -68,6 +68,7 @@
         "primary",
         "secondary",
         "danger",
+        "success",
         "ghost",
         "warning",
         "variable"

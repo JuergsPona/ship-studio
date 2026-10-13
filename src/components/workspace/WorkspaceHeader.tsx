@@ -282,6 +282,7 @@ export function WorkspaceTitlebar({ children }: WorkspaceTitlebarProps) {
   );
 }
 
+/** Arranges project navigation, workspace actions, team presence, and plugin controls. */
 export function WorkspaceHeader({
   projectPath,
   projectName,
@@ -515,8 +516,8 @@ export function WorkspaceHeader({
         data-workspace-panel="assets"
         leftIcon={<ImageIcon size={16} />}
       />
-      {headerExtras}
       {teamPresence}
+      {headerExtras}
     </div>
   );
   const projectTitle = (

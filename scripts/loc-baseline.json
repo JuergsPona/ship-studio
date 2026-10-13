@@ -3,13 +3,15 @@
   "files": [
     {
       "path": "src/components/workspace/WorkspaceView.tsx",
+      "limit": 1520,
       "baselineLines": 1544,
-      "limit": 1520
+      "reason": "Existing at PR base 13cccf3a; record current orchestration debt without allowing further growth."
     },
     {
       "path": "src/styles/features/workspace/sidebar.css",
+      "limit": 1320,
       "baselineLines": 1395,
-      "limit": 1320
+      "reason": "Existing at PR base 13cccf3a; record current sidebar styling debt without allowing further growth."
     }
   ]
 }

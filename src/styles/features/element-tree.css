@@ -31,9 +31,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
-  color: var(--text-primary);
-  font-size: var(--font-size-body-lg);
 }
 
 .ss-tree-panel--view-only .ss-tree-panel__title {
