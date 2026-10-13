@@ -78,6 +78,7 @@ import {
 } from './lib/workflowsStore';
 import { useCompactWorkspaceToolbar } from './hooks/useCompactWorkspaceToolbar';
 import { useKeepDevServersRunning } from './hooks/useKeepDevServersRunning';
+import { useDevServerRetention } from './hooks/useDevServerRetention';
 import { installAppLifecycleTracking, quitAppWithTracking } from './lib/appLifecycle';
 import type { AppView } from './lib/types';
 import './styles/index.css';
@@ -358,20 +359,6 @@ function AppContents({ initialProjectPath }: AppProps) {
       integrations.projectGithub?.status === 'other-remote',
   });
 
-  // The experimental opt-in keeps background servers alive. When it is off,
-  // stop every project except the one currently visible in Preview; the same
-  // effect covers project switches, Code/Branches views, focus mode, and home
-  // screens. The loading state prevents a slow settings read from stopping a
-  // server before the saved preference is known.
-  const visiblePreviewPath =
-    view === 'workspace' && workspaceTab === 'preview' && !isPreviewHidden
-      ? (currentProject?.path ?? null)
-      : null;
-  useEffect(() => {
-    if (keepDevServersRunning === null || keepDevServersRunning) return;
-    void stopAllServersExcept(visiblePreviewPath);
-  }, [keepDevServersRunning, serverLifecycleVersion, stopAllServersExcept, visiblePreviewPath]);
-
   // Plugin state
   const {
     pluginTerminal,
@@ -512,31 +499,16 @@ function AppContents({ initialProjectPath }: AppProps) {
     checkPluginSuggestion,
   });
 
-  // With background retention off, leaving Preview stopped this project's
-  // server. Only the Preview tab button and its shortcut restart it, so every
-  // other way back (un-hiding focus mode, comments, dev-server logs) would land
-  // on a Preview with no server. Start it on the hidden→visible transition for
-  // the same project; project switches start their own server, and an explicit
-  // Stop while Preview stays visible is left alone.
-  const handleStartDevServerRef = useRef(handleStartDevServer);
-  handleStartDevServerRef.current = handleStartDevServer;
-  const previousPreviewVisibilityRef = useRef({
-    visiblePath: visiblePreviewPath,
-    projectPath: currentProject?.path ?? null,
+  useDevServerRetention({
+    keepDevServersRunning,
     view,
+    workspaceTab,
+    isPreviewHidden,
+    currentProjectPath: currentProject?.path ?? null,
+    serverLifecycleVersion,
+    stopAllServersExcept,
+    startCurrentDevServer: handleStartDevServer,
   });
-  useEffect(() => {
-    const previous = previousPreviewVisibilityRef.current;
-    previousPreviewVisibilityRef.current = {
-      visiblePath: visiblePreviewPath,
-      projectPath: currentProject?.path ?? null,
-      view,
-    };
-    if (keepDevServersRunning !== false || visiblePreviewPath === null) return;
-    if (previous.visiblePath !== null || previous.view !== 'workspace') return;
-    if (previous.projectPath !== visiblePreviewPath) return;
-    void handleStartDevServerRef.current();
-  }, [keepDevServersRunning, visiblePreviewPath, currentProject?.path, view]);
 
   // Save port handler: persist, update state, close modal, restart dev server
   const handleSavePort = useCallback(
