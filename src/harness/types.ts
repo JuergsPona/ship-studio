@@ -28,6 +28,8 @@ export interface ScenarioStep {
   click?: string;
   /** Type into this input once it exists. */
   fill?: string;
+  /** Choose this value from a native select once it exists. */
+  select?: string;
   /** The text `fill` types. */
   value?: string;
 }

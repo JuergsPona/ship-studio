@@ -12,6 +12,7 @@ import BranchMainSvg from '../../assets/icons/git-branch-main.svg?react';
 import BranchMainNoneSvg from '../../assets/icons/git-branch-main-none.svg?react';
 import BranchMidSvg from '../../assets/icons/git-branch-mid.svg?react';
 import PullRequestSvg from '../../assets/icons/git-pull-request.svg?react';
+import BugReportSvg from '../../assets/icons/bug.svg?react';
 import SettingsSvg from '../../assets/icons/settings.svg?react';
 import SettingsSlidersSvg from '../../assets/icons/settings-sliders.svg?react';
 import GlobeSvg from '../../assets/icons/globe.svg?react';
@@ -136,6 +137,13 @@ export const PullRequestIcon = createIcon(PullRequestSvg, {
   kind: 'ui',
   defaultSize: 14,
   compact: true,
+  strokeWidth: '1px',
+});
+export const BugReportIcon = createIcon(BugReportSvg, {
+  name: 'BugReportIcon',
+  source: 'icons/bug.svg',
+  kind: 'ui',
+  defaultSize: 16,
   strokeWidth: '1px',
 });
 export const SettingsIcon = createIcon(SettingsSvg, {

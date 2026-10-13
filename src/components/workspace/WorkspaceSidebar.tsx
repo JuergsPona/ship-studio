@@ -34,6 +34,8 @@ import {
 } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
+import { MenuButton } from '../primitives/MenuButton';
+import { SettingsMenu } from '../SettingsMenu';
 import { PanelResizeHandle } from '../primitives/PanelResizeHandle';
 import { Spinner } from '../primitives/Spinner';
 import { BrowserDropdown } from '../preview/BrowserDropdown';
@@ -373,6 +375,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onSwitchAccount,
 }: Props) {
   const appSettingsModal = useModal('settings');
+  const bugReportModal = useModal('bugReport');
+  const featureRequestModal = useModal('featureRequest');
+  const changelogModal = useModal('changelog');
   // 219, not 214: the top row gained Workflows and Inbox beside Home, and at the
   // old default the last one sat hard against the resize edge.
   const [sidebarWidth, setSidebarWidth] = useState(219);
@@ -1653,7 +1658,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         <div className="workspace-sidebar-footer">
           <UpdateBanner />
           <div
-            className={`workspace-sidebar-footer-actions${
+            className={`workspace-sidebar-footer-actions has-settings-drawer${
               showWorkspaceSwitcher ? ' has-workspace-switcher' : ''
             }`}
           >
@@ -1750,13 +1755,55 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               aria-label="Support"
               data-education-id="support-button"
             />
-            <IconButton
-              variant="default"
-              className="workspace-sidebar-settings"
-              icon={<SettingsIcon size={12} />}
-              onClick={appSettingsModal.open}
-              title="App settings"
-              aria-label="App settings"
+            <SettingsMenu
+              className="workspace-sidebar-settings-menu"
+              onOpenSettings={appSettingsModal.open}
+              onOpenBugReports={bugReportModal.open}
+              onOpenFeatureRequest={featureRequestModal.open}
+              onOpenChangelog={changelogModal.open}
+              presentation="drawer"
+              onOpenChange={(open) => {
+                if (open) {
+                  closeWorkspaceSwitcher();
+                  if (isSidebarHidden) onToggleSidebar?.();
+                }
+              }}
+              renderTrigger={(props) => {
+                const settingsMenuOpen = props['aria-expanded'];
+                if (!settingsMenuOpen) {
+                  return (
+                    <MenuButton
+                      variant="default"
+                      className="button--icon-only workspace-sidebar-settings"
+                      leftIcon={<SettingsIcon size={12} />}
+                      title="Settings & Help"
+                      aria-label="Settings & Help"
+                      data-settings-menu-trigger="workspace"
+                      expanded={settingsMenuOpen}
+                      {...props}
+                    />
+                  );
+                }
+
+                return (
+                  <MenuButton
+                    variant={settingsMenuOpen ? 'ghost' : 'default'}
+                    width="fill"
+                    className="workspace-sidebar-settings-summary workspace-sidebar-ws-switch"
+                    leftIcon={<SettingsIcon size={12} />}
+                    title="Settings & Help"
+                    aria-label="Settings & Help"
+                    data-settings-menu-trigger="workspace"
+                    expanded={settingsMenuOpen}
+                    {...props}
+                  >
+                    <span className="workspace-switcher-name">Settings &amp; Help</span>
+                    <span className="workspace-switcher-chevron is-open" aria-hidden="true">
+                      <ChevronIcon size={12} />
+                    </span>
+                  </MenuButton>
+                );
+              }}
             />
           </div>
         </div>

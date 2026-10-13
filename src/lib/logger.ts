@@ -66,7 +66,12 @@ class Logger {
     this.isInitialized = false;
   }
 
-  private log(level: LogLevel, message: string, context?: Record<string, unknown>) {
+  private log(
+    level: LogLevel,
+    message: string,
+    context?: Record<string, unknown>,
+    reportSource?: string
+  ) {
     const entry: LogEntry = {
       level,
       message,
@@ -113,7 +118,7 @@ class Logger {
     // Immediately send errors to backend, and report them to the admin agent
     if (level === 'error') {
       void this.sendToBackend(entry);
-      this.forwardToAdminAgent(entry);
+      this.forwardToAdminAgent(entry, reportSource);
     }
   }
 
@@ -124,7 +129,7 @@ class Logger {
    * throttled cross-session on the Rust side. Plugin errors (blob: URLs) are
    * third-party code and excluded.
    */
-  private forwardToAdminAgent(entry: LogEntry) {
+  private forwardToAdminAgent(entry: LogEntry, reportSource?: string) {
     const contextText = entry.context ? JSON.stringify(entry.context) : '';
     if (entry.message.includes('blob:') || contextText.includes('blob:')) return;
 
@@ -135,7 +140,7 @@ class Logger {
     reportError({
       message: entry.message,
       stack: parts.length > 0 ? parts.join('\n\n') : undefined,
-      source: 'frontend-log',
+      source: reportSource ?? 'frontend-log',
     });
   }
 
@@ -201,12 +206,17 @@ class Logger {
   /**
    * Log an Error object with stack trace
    */
-  logError(error: Error, context?: Record<string, unknown>) {
-    this.error(error.message, {
-      ...context,
-      stack: error.stack,
-      name: error.name,
-    });
+  logError(error: Error, context?: Record<string, unknown>, reportSource?: string) {
+    this.log(
+      'error',
+      error.message,
+      {
+        ...context,
+        stack: error.stack,
+        name: error.name,
+      },
+      reportSource
+    );
   }
 
   /**
@@ -246,8 +256,8 @@ class ChildLogger {
     this.parent.error(message, this.mergeContext(context));
   }
 
-  logError(error: Error, context?: Record<string, unknown>) {
-    this.parent.logError(error, this.mergeContext(context));
+  logError(error: Error, context?: Record<string, unknown>, reportSource?: string) {
+    this.parent.logError(error, this.mergeContext(context), reportSource);
   }
 }
 

@@ -785,6 +785,8 @@ pub fn run() {
             // Pull requests
             commands::pull_requests::list_pull_requests,
             commands::pull_requests::create_pull_request,
+            commands::issue_reports::get_issue_report_context,
+            commands::issue_reports::submit_github_issue,
             commands::pull_requests::merge_pull_request,
             commands::pull_requests::checkout_pull_request,
             commands::pull_requests::close_pull_request,
@@ -910,6 +912,7 @@ pub fn run() {
             logging::log_frontend_event,
             // Error reporting (admin agent)
             error_reporting::report_frontend_error,
+            error_reporting::get_automatic_report_status,
             // Snapshots / Undo-Redo
             commands::snapshots::snapshot_start_watching,
             commands::snapshots::snapshot_stop_watching,
