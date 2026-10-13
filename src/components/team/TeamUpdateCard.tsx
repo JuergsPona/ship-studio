@@ -125,6 +125,7 @@ export function TeamUpdateCard({
     };
   }, [
     githubUrl,
+    update.asks,
     totals.added,
     totals.removed,
     update.branch,
