@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ElementTreePanel, treePlacementForTarget } from './ElementTreePanel';
 import { projectElementTree } from '../../lib/element-tree-drag';
+import { getSnapshot } from '../../commands/registry';
+import { matchesContext } from '../../commands/types';
 
 function pointer(type: string, x: number, y: number) {
   const event = new Event(type, { bubbles: true, cancelable: true });
@@ -115,8 +117,95 @@ describe('ElementTreePanel', () => {
     const header = panel.querySelector('.ss-tree-panel__header');
     const controls = panel.querySelector('.ss-tree-panel__controls');
     expect(controls).toBe(header?.nextElementSibling);
-    expect(controls).toContainElement(screen.getByRole('button', { name: 'Show tag icons' }));
+    expect(controls).toContainElement(screen.getByRole('button', { name: 'Use tag icons' }));
+    expect(controls).toContainElement(screen.getByText('View only'));
+    expect(header).not.toContainElement(screen.getByText('View only'));
     expect(panel.querySelector('[data-tree-id="2"]')).toHaveClass('affected');
+  });
+
+  it('collapses expanded branches in a partially expanded tree', async () => {
+    render(
+      <ElementTreePanel
+        tree={{
+          id: 1,
+          tag: 'body',
+          cls: '',
+          text: '',
+          children: [
+            {
+              id: 2,
+              tag: 'main',
+              cls: '',
+              text: '',
+              children: [
+                {
+                  id: 3,
+                  tag: 'section',
+                  cls: '',
+                  text: '',
+                  children: [
+                    {
+                      id: 4,
+                      tag: 'nav',
+                      cls: '',
+                      text: '',
+                      children: [{ id: 5, tag: 'div', cls: '', text: '', children: [] }],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }}
+        truncated={false}
+        selectedId={null}
+        onSelect={vi.fn()}
+        onHover={vi.fn()}
+        projectPath="/tmp/project"
+        selectedSignature={null}
+      />
+    );
+
+    await waitFor(() => {
+      const commands = getSnapshot();
+      const expandAll = commands.find((command) => command.id === 'element.expandAll');
+      const collapseAll = commands.find((command) => command.id === 'element.collapseAll');
+      expect(expandAll).toBeDefined();
+      expect(collapseAll).toBeDefined();
+      expect(expandAll?.when).toBeTypeOf('function');
+      expect(collapseAll?.when).toBeTypeOf('function');
+      expect(matchesContext(expandAll?.when, { kind: 'project', currentProjectName: null })).toBe(
+        true
+      );
+      expect(matchesContext(collapseAll?.when, { kind: 'project', currentProjectName: null })).toBe(
+        true
+      );
+    });
+
+    const panel = screen.getByTestId('element-tree-panel');
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all elements' }));
+
+    expect(screen.getByRole('button', { name: 'Expand all elements' })).toBeInTheDocument();
+    expect(panel.querySelector('[data-tree-id="1"]')).toBeInTheDocument();
+    expect(panel.querySelector('[data-tree-id="2"]')).toBeInTheDocument();
+    expect(panel.querySelector('[data-tree-id="3"]')).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      const commands = getSnapshot();
+      const expandAll = commands.find((command) => command.id === 'element.expandAll');
+      const collapseAll = commands.find((command) => command.id === 'element.collapseAll');
+      expect(expandAll).toBeDefined();
+      expect(collapseAll).toBeDefined();
+      expect(matchesContext(expandAll?.when, { kind: 'project', currentProjectName: null })).toBe(
+        true
+      );
+      expect(matchesContext(collapseAll?.when, { kind: 'project', currentProjectName: null })).toBe(
+        false
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all elements' }));
+    expect(panel.querySelector('[data-tree-id="5"]')).toBeInTheDocument();
   });
 
   it('renders sortable rows as siblings with whole-row activation', () => {
@@ -406,12 +495,12 @@ describe('ElementTreePanel', () => {
     );
 
     const panel = screen.getByTestId('element-tree-panel');
-    const toggle = screen.getByRole('button', { name: 'Show tag icons' });
+    const toggle = screen.getByRole('button', { name: 'Use tag icons' });
     expect(panel.querySelector('[data-tree-id="2"] .ss-tree-tag')).toHaveTextContent('div');
 
     fireEvent.click(toggle);
 
-    expect(screen.getByRole('button', { name: 'Show tag names' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Use tag names' })).toHaveAttribute(
       'aria-pressed',
       'true'
     );
@@ -422,19 +511,19 @@ describe('ElementTreePanel', () => {
     expect(
       panel.querySelector('[data-tree-id="3"] [data-icon-name="ElementMainIcon"]')
     ).toBeInTheDocument();
-    expect(panel.querySelector('[data-tree-id="3"] .ss-tree-tag')).not.toBeInTheDocument();
+    expect(panel.querySelector('[data-tree-id="3"] .ss-tree-tag')).toHaveTextContent('main');
     expect(
       panel.querySelector('[data-tree-id="4"] [data-icon-name="ElementHeadIcon"]')
     ).toBeInTheDocument();
-    expect(panel.querySelector('[data-tree-id="4"] .ss-tree-tag')).not.toBeInTheDocument();
+    expect(panel.querySelector('[data-tree-id="4"] .ss-tree-tag')).toHaveTextContent('header');
     expect(
       panel.querySelector('[data-tree-id="5"] [data-icon-name="ElementNavIcon"]')
     ).toBeInTheDocument();
-    expect(panel.querySelector('[data-tree-id="5"] .ss-tree-tag')).not.toBeInTheDocument();
+    expect(panel.querySelector('[data-tree-id="5"] .ss-tree-tag')).toHaveTextContent('nav');
     expect(
       panel.querySelector('[data-tree-id="6"] [data-icon-name="ElementCodeBlockIcon"]')
     ).toBeInTheDocument();
-    expect(panel.querySelector('[data-tree-id="6"] .ss-tree-tag')).not.toBeInTheDocument();
+    expect(panel.querySelector('[data-tree-id="6"] .ss-tree-tag')).toHaveTextContent('code');
   });
 
   it('remembers the tag icon preference when the panel remounts', () => {
@@ -449,15 +538,61 @@ describe('ElementTreePanel', () => {
     };
 
     const { unmount } = render(<ElementTreePanel {...props} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Show tag icons' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use tag icons' }));
     expect(localStorage.getItem('elementTreeShowTagIcons')).toBe('1');
 
     unmount();
     render(<ElementTreePanel {...props} />);
 
-    expect(screen.getByRole('button', { name: 'Show tag names' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Use tag names' })).toHaveAttribute(
       'aria-pressed',
       'true'
+    );
+  });
+
+  it('remembers the tag font and color preferences when the panel remounts', () => {
+    const props = {
+      tree: {
+        id: 1,
+        tag: 'body',
+        cls: 'page-shell',
+        text: '',
+        children: [],
+      },
+      truncated: false,
+      selectedId: 1,
+      onSelect: vi.fn(),
+      onHover: vi.fn(),
+      projectPath: '/tmp/project',
+      selectedSignature: null,
+    };
+
+    const { unmount } = render(<ElementTreePanel {...props} />);
+    const panel = screen.getByTestId('element-tree-panel');
+    expect(panel).not.toHaveClass('ss-tree-panel--sans-serif');
+    expect(panel).not.toHaveClass('ss-tree-panel--monochrome');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mono font off' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use shades of grey' }));
+
+    expect(panel).toHaveClass('ss-tree-panel--sans-serif');
+    expect(panel).toHaveClass('ss-tree-panel--monochrome');
+    expect(localStorage.getItem('elementTreeShowTagSansSerif')).toBe('1');
+    expect(localStorage.getItem('elementTreeShowTagColors')).toBe('0');
+
+    unmount();
+    render(<ElementTreePanel {...props} />);
+
+    const remountedPanel = screen.getByTestId('element-tree-panel');
+    expect(remountedPanel).toHaveClass('ss-tree-panel--sans-serif');
+    expect(remountedPanel).toHaveClass('ss-tree-panel--monochrome');
+    expect(screen.getByRole('button', { name: 'Mono font on' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+    expect(screen.getByRole('button', { name: 'Use color-coding' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
     );
   });
 
