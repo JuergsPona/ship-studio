@@ -345,6 +345,33 @@ describe('useDevServer', () => {
       );
     });
 
+    it('ends the starting lifecycle when dependencies are missing', async () => {
+      const { detectProjectType } = await import('../lib/static-server');
+      const { startDevServer, checkDependenciesInstalled } = await import('../lib/project');
+      vi.mocked(detectProjectType).mockResolvedValue('nextjs');
+      vi.mocked(checkDependenciesInstalled).mockResolvedValue({
+        installed: false,
+        hasPackageJson: true,
+        workspaceHasPackageJson: true,
+      });
+
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
+      const versionBefore = result.current.serverLifecycleVersion;
+
+      await act(async () => {
+        await result.current.startServerForProject('/path/to/project', 'my-project', 3000, 'main');
+      });
+
+      expect(startDevServer).not.toHaveBeenCalled();
+      expect(result.current.getProjectDevServerSnapshot('/path/to/project').status).toBe(
+        'not-running'
+      );
+      expect(result.current.isServerStarting('/path/to/project')).toBe(false);
+      // One bump entering 'starting', one leaving it — memoized consumers
+      // (the sidebar row) only re-read the snapshot when this changes.
+      expect(result.current.serverLifecycleVersion).toBe(versionBefore + 2);
+    });
+
     it('skips the dev server when a framework config exists but no package.json (issue #593)', async () => {
       const { detectProjectType } = await import('../lib/static-server');
       const { startDevServer, checkDependenciesInstalled } = await import('../lib/project');

@@ -734,6 +734,10 @@ export function useDevServer(currentProjectPath: string | null) {
             projectType: detectedType,
           });
           s.starting = false;
+          s.inFlightStart = null;
+          // The sidebar row is memoized on the lifecycle version; without
+          // this bump it keeps showing "starting" next to the install CTA.
+          bumpServerLifecycle();
           return detectedType;
         }
       } catch (err) {
