@@ -32,10 +32,19 @@ function rule(selector, source = css) {
 }
 
 test('ordinary sortable rows have no insertion indicator; tree indicators are explicit opt-in', () => {
-  assert.doesNotMatch(css, /\.drag-sort__item\.is-target::after/);
+  // Rows without a dedicated target use the item's edge, but only when the
+  // caller opts in. When a nested target exists, that surface owns the edge.
   assert.match(
     css,
-    /\.drag-sort__item\[data-drag-sort-target-indicator='true'\]\.is-target::after/
+    /\.drag-sort__item\[data-drag-sort-target-indicator='true'\]:not\(\s*:has\(\.drag-sort__target\)\s*\)\.is-target::after/
+  );
+  assert.match(
+    css,
+    /\.drag-sort__target\[data-drag-sort-target-indicator='true'\]\.is-target::after/
+  );
+  assert.doesNotMatch(
+    css,
+    /\.drag-sort__item\.is-target::after/
   );
 });
 
