@@ -259,7 +259,45 @@ export function usePreviewConnection({
 
     const timer = setTimeout(() => setRetryCount(0), 1500);
     return () => clearTimeout(timer);
-  }, [projectPath, port, enabled, serverAlreadyRunning, serverInstanceId]);
+    // Server identity is deliberately NOT a dependency: it changes on every
+    // restart of the same project's server (toolbar restart, port or custom
+    // command save, branch switch), and resetting here would throw the user
+    // back to `/`. The effect below re-checks readiness for a new identity
+    // without touching navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectPath, port, enabled]);
+
+  // A new server identity for the SAME project re-evaluates readiness only.
+  // Project switches are owned by the full reset above; restarts are owned by
+  // the isDevServerRestarting effect below, which already re-probes when the
+  // restart finishes.
+  const serverIdentityRef = useRef({ projectPath, serverAlreadyRunning, serverInstanceId });
+  const isDevServerRestartingRef = useRef(isDevServerRestarting);
+  isDevServerRestartingRef.current = isDevServerRestarting;
+  const serverReadyRef = useRef(serverReady);
+  serverReadyRef.current = serverReady;
+  useEffect(() => {
+    const previous = serverIdentityRef.current;
+    serverIdentityRef.current = { projectPath, serverAlreadyRunning, serverInstanceId };
+    if (previous.projectPath !== projectPath) return;
+    if (
+      previous.serverAlreadyRunning === serverAlreadyRunning &&
+      previous.serverInstanceId === serverInstanceId
+    ) {
+      return;
+    }
+    if (!enabled || !serverAlreadyRunning || isDevServerRestartingRef.current) return;
+    if (hasWarmReadyPreview(projectPath, serverInstanceId)) {
+      setServerReady(true);
+      setIsLoading(false);
+      setHasError(false);
+      return;
+    }
+    // A server that just came up skips the cold-start settle delay. One that
+    // replaced an already-verified run keeps the frame; the periodic health
+    // check owns that case, as it did before identities existed.
+    if (!serverReadyRef.current) setRetryCount(0);
+  }, [projectPath, enabled, serverAlreadyRunning, serverInstanceId]);
 
   // Reset server state when dev server is restarting, start polling when done
   useEffect(() => {
