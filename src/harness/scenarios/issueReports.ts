@@ -165,7 +165,7 @@ export const issueReportScenarios: Scenario[] = [
           {
             timestamp: new Date(Date.now() - 120_000).toISOString(),
             kind: 'error',
-            source: 'frontend-crash',
+            source: 'frontend-log',
             summary: 'Preview failed to load after switching projects.',
           },
         ],
