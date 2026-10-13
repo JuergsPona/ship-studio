@@ -22,6 +22,7 @@ import { EditPopover } from './EditPopover';
 import { CssValueText } from './CssValueText';
 import { hasColorTransparency } from '../../lib/color';
 import { colorSwatch } from '../../lib/cssProperties';
+import type { ValueFieldVariable } from '../primitives/ValueField';
 
 interface Props {
   variables: VariableRow[];
@@ -36,6 +37,7 @@ interface Props {
   ) => Promise<CssVariableDeleteImpact>;
   /** Persist a projected order within one exact `:root` source rule. */
   onReorderVariables?: (ordered: VariableRow[]) => Promise<void>;
+  projectPath?: string;
 }
 
 export function CssVariablesPanel({
@@ -47,6 +49,7 @@ export function CssVariablesPanel({
   onAnalyzeDelete,
   onDeleteVariable,
   onReorderVariables,
+  projectPath,
 }: Props) {
   const [deleteTarget, setDeleteTarget] = useState<VariableRow | null>(null);
   const deleteImpact = useAsyncState(onAnalyzeDelete);
@@ -145,6 +148,8 @@ export function CssVariablesPanel({
                 key={cssVariableId(v)}
                 variable={v}
                 variableNames={variableNames}
+                variables={variables}
+                projectPath={projectPath}
                 sortable={(rootGroupCounts.get(variableSourceKey(v)) ?? 0) > 1}
                 sortGroup={variableSourceKey(v)}
                 sortIndex={
@@ -169,6 +174,8 @@ export function CssVariablesPanel({
               key={cssVariableId(v)}
               variable={v}
               variableNames={variableNames}
+              variables={variables}
+              projectPath={projectPath}
               onSetValue={(val) => onSetValue(v, val)}
               onRequestDelete={() => requestDelete(v)}
             />
@@ -300,6 +307,8 @@ function ColorSwatch({
 function EditableVarRow({
   variable,
   variableNames,
+  variables,
+  projectPath,
   onSetValue,
   onRequestDelete,
   sortable = false,
@@ -308,6 +317,8 @@ function EditableVarRow({
 }: {
   variable: VariableRow;
   variableNames: string[];
+  variables: readonly ValueFieldVariable[];
+  projectPath?: string;
   onSetValue: (value: string) => void;
   onRequestDelete: () => void;
   sortable?: boolean;
@@ -326,6 +337,10 @@ function EditableVarRow({
   const options = useMemo(
     () => variableNames.filter((n) => n !== variable.name).map((n) => `var(${n})`),
     [variableNames, variable.name]
+  );
+  const colorVariables = useMemo(
+    () => variables.filter((candidate) => candidate.name !== variable.name),
+    [variables, variable.name]
   );
 
   const row = (
@@ -375,6 +390,9 @@ function EditableVarRow({
             anchor={null}
             initial={variable.value}
             options={options}
+            variables={colorVariables}
+            variableSelector={variable.selector}
+            projectPath={projectPath}
             enableColorPicker={false}
             placeholder="value"
             onCommit={onSetValue}
@@ -400,6 +418,9 @@ function EditableVarRow({
         <EditPopover
           anchor={editing.anchor}
           initial={variable.value}
+          variables={colorVariables}
+          variableSelector={variable.selector}
+          projectPath={projectPath}
           enableColorPicker
           placeholder="value"
           onCommit={onSetValue}

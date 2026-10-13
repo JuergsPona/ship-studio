@@ -3,10 +3,15 @@ import { useState } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { mockInvokeResponse } from '../../test/setup';
 import { ColorPicker } from './ColorPicker';
+import { colorPickerFloatingHeight } from '../../lib/color';
 
 type EyeDropperWindow = Window & {
   EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> };
 };
+
+const recentFallbackProjectPath = '/test/color-picker-recent-fallback';
+const recentFallbackStorageKey = `shipstudio.color-picker.recent.v1:${encodeURIComponent(recentFallbackProjectPath)}`;
+const contrastCheckerStorageKey = 'shipstudio.color-picker.contrast-checker';
 
 function renderPicker(value = '#ff0000') {
   const onChange = vi.fn();
@@ -50,10 +55,23 @@ function mockRect(element: Element, width: number, height: number) {
 
 afterEach(() => {
   delete (window as EyeDropperWindow).EyeDropper;
+  window.localStorage.removeItem(recentFallbackStorageKey);
+  window.localStorage.removeItem(contrastCheckerStorageKey);
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
 describe('ColorPicker', () => {
+  it('keeps the base height when a constrained measurement collapses', () => {
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(800);
+    expect(colorPickerFloatingHeight(4)).toBe(510);
+  });
+
+  it('clamps intrinsic content height to a short viewport', () => {
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(420);
+    expect(colorPickerFloatingHeight(628)).toBe(404);
+  });
+
   it('closes from the header button', () => {
     const { onClose } = renderPicker();
     expect(screen.getByRole('heading', { name: 'Color picker' }).closest('header')).toHaveAttribute(
@@ -63,22 +81,162 @@ describe('ColorPicker', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it('searches project color variables and commits their authored var() value', () => {
+    const onChange = vi.fn();
+    render(
+      <ColorPicker
+        value="var(--unknown-color)"
+        authoredValue="var(--unknown-color)"
+        variables={[{ name: '--brand', value: '#336699' }, { name: '--unknown-color' }]}
+        onChange={onChange}
+        onClose={() => undefined}
+      />
+    );
+
+    const variablesTab = screen.getByRole('tab', { name: 'Variables' });
+    fireEvent.click(variablesTab);
+    expect(variablesTab).toHaveAttribute('aria-selected', 'true');
+    expect(
+      screen.getByRole('option', { name: '--unknown-color, preview unavailable' })
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search color variables' }), {
+      target: { value: 'brand' },
+    });
+    fireEvent.click(screen.getByRole('option', { name: '--brand' }));
+
+    expect(onChange).toHaveBeenLastCalledWith('var(--brand)');
+  });
+
+  it('checks a known color pair and only enables AAA for text', () => {
+    render(
+      <ColorPicker
+        value="#ffffff"
+        contrastContext={{ backgroundColor: '#000000', category: 'normal-text' }}
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contrast checker' }));
+    expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'Pass AA, 4.5:1 required');
+    expect(screen.getByRole('button', { name: /Contrast color pair, 21\.00 : 1/ })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contrast settings' }));
+    expect(screen.getByRole('menuitem', { name: 'AAA · Only for text' })).toBeEnabled();
+  });
+
+  it('keeps the AAA preference when switching temporarily to graphics', () => {
+    render(
+      <ColorPicker
+        value="#ffffff"
+        contrastContext={{ backgroundColor: '#000000', category: 'normal-text' }}
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contrast checker' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Contrast settings' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'AAA · Only for text' }));
+    expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'Pass AAA, 7:1 required');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contrast settings' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Graphics' }));
+    expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'Pass AA, 3:1 required');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contrast settings' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Normal text' }));
+    expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'Pass AAA, 7:1 required');
+  });
+
+  it('does not infer a foreground color when an authored variable is unresolved', () => {
+    render(
+      <ColorPicker
+        value="var(--missing-color)"
+        authoredValue="var(--missing-color)"
+        variables={[{ name: '--missing-color' }]}
+        contrastContext={{ backgroundColor: '#ffffff', category: 'normal-text' }}
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contrast checker' }));
+    expect(screen.getByRole('status', { name: /Contrast check unavailable/ })).toHaveAttribute(
+      'aria-label',
+      'Contrast check unavailable. Foreground color is unavailable.'
+    );
+    expect(
+      screen.getByRole('button', {
+        name: /Contrast color pair ratio unavailable: Foreground color is unavailable/,
+      })
+    ).toBeEnabled();
+    expect(
+      screen.queryByRole('button', { name: /Restore original color/ })
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Custom' }));
+    expect(screen.getByRole('slider', { name: 'Color' })).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: /Contrast check unavailable/ })).toBeInTheDocument();
+  });
+
+  it('calculates contrast with fractional rendered background channels intact', () => {
+    render(
+      <ColorPicker
+        value="#000000"
+        contrastContext={{
+          backgroundColor: 'rgb(127.5 127.5 127.5)',
+          category: 'normal-text',
+        }}
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contrast checker' }));
+    expect(
+      screen.getByRole('button', { name: /Contrast color pair, 5\.28 : 1/ })
+    ).toBeInTheDocument();
+  });
+
+  it('never rounds a failing ratio up to the threshold it fails', () => {
+    // rgb(100 123 125) on white is 4.4956:1 — rounding would print 4.50 next to "Fail".
+    render(
+      <ColorPicker
+        value="#647b7d"
+        contrastContext={{ backgroundColor: '#ffffff', category: 'normal-text' }}
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contrast checker' }));
+    expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'Fail AA, 4.5:1 required');
+    expect(
+      screen.getByRole('button', { name: /Contrast color pair, 4\.49 : 1/ })
+    ).toBeInTheDocument();
+  });
+
   it('exposes the primary format fields', () => {
     renderPicker('rgba(10, 20, 30, 0.5)');
-    expect(screen.getByRole('button', { name: 'HSL' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByLabelText('H')).toBeInTheDocument();
-    expect(screen.getByLabelText('L')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Hex' }));
-    expect(screen.getByLabelText('Hex')).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'Alpha' })).toHaveValue('50');
-
-    fireEvent.click(screen.getByRole('button', { name: 'RGB' }));
+    expect(screen.getByRole('tab', { name: 'RGB' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByLabelText('R')).toHaveValue('10');
     expect(screen.getByLabelText('G')).toHaveValue('20');
     expect(screen.getByLabelText('B')).toHaveValue('30');
 
-    fireEvent.click(screen.getByRole('button', { name: 'HSB' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'HSL' }));
+    expect(screen.getByLabelText('H')).toBeInTheDocument();
+    expect(screen.getByLabelText('L')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Hex' }));
+    expect(screen.getByLabelText('Hex')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Alpha' })).toHaveValue('50%');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'RGB' }));
+    expect(screen.getByLabelText('R')).toHaveValue('10');
+    expect(screen.getByLabelText('G')).toHaveValue('20');
+    expect(screen.getByLabelText('B')).toHaveValue('30');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'HSB' }));
     expect(screen.getByLabelText('S')).toBeInTheDocument();
     expect(screen.getByLabelText('B')).toBeInTheDocument();
   });
@@ -86,13 +244,13 @@ describe('ColorPicker', () => {
   it('emits the CSS syntax selected in the format control', () => {
     const { onChange } = renderPicker('#ff0000');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Hex' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Hex' }));
     expect(onChange).toHaveBeenLastCalledWith('#ff0000');
 
-    fireEvent.click(screen.getByRole('button', { name: 'RGB' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'RGB' }));
     expect(onChange).toHaveBeenLastCalledWith('rgb(255, 0, 0)');
 
-    fireEvent.click(screen.getByRole('button', { name: 'HSL' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'HSL' }));
     expect(onChange).toHaveBeenLastCalledWith(expect.stringMatching(/^hsl\(/));
 
     fireEvent.click(screen.getByRole('button', { name: 'More color formats' }));
@@ -122,20 +280,68 @@ describe('ColorPicker', () => {
     expect(screen.getByRole('button', { name: 'Color format: OKLCH' })).toHaveTextContent('OKLCH');
     expect(screen.getAllByRole('textbox')).toHaveLength(4);
     expect(screen.getByLabelText('C')).toBeInTheDocument();
-    expect(screen.getByLabelText('L').closest('label')).toHaveTextContent('%');
+    expect(screen.getByLabelText('L')).toHaveProperty('value', expect.stringMatching(/%$/));
 
     fireEvent.change(screen.getByLabelText('L'), { target: { value: '50' } });
     fireEvent.blur(screen.getByLabelText('L'));
+    expect(screen.getByLabelText('L')).toHaveProperty('value', expect.stringMatching(/%$/));
     expect(onChange).toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Color format: OKLCH' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'RGB' }));
-    expect(screen.getByRole('button', { name: 'RGB' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('tab', { name: 'RGB' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('scrubs OKLCH chroma with a step matched to its smaller range', () => {
+    vi.stubGlobal('PointerEvent', MouseEvent);
+    renderPicker('oklch(60% 0.05 250)');
+
+    const chroma = screen.getByLabelText('C');
+    if (!(chroma instanceof HTMLInputElement)) throw new Error('Chroma field should be an input');
+    const initial = Number(chroma.value);
+    const label = chroma
+      .closest('.ss-color-picker__field')
+      ?.querySelector('.ss-color-picker__field-label');
+    expect(label).not.toBeNull();
+
+    fireEvent.pointerDown(label!, { button: 0, clientX: 100, pointerId: 1 });
+    fireEvent.pointerMove(label!, { clientX: 120, pointerId: 1 });
+    fireEvent.pointerUp(label!, { pointerId: 1 });
+
+    const adjustedField = screen.getByLabelText('C');
+    if (!(adjustedField instanceof HTMLInputElement)) {
+      throw new Error('Chroma field should be an input');
+    }
+    const adjusted = Number(adjustedField.value);
+    expect(adjusted).toBeGreaterThan(initial);
+    expect(adjusted - initial).toBeLessThan(0.05);
+  });
+
+  it('resolves a variable against the supplied selector when showing picker swatches', () => {
+    render(
+      <ColorPicker
+        value="var(--background)"
+        authoredValue="var(--background)"
+        variableSelector=".dark"
+        variables={[
+          { name: '--background', value: '#ffffff', selector: ':root' },
+          { name: '--background', value: '#000000', selector: '.dark' },
+        ]}
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Variables' }));
+    const selected = screen.getByRole('option', { name: '--background' });
+    expect(selected.querySelector('.ss-color-picker__variable-swatch')).toHaveStyle({
+      '--picker-swatch-color': 'rgb(0, 0, 0)',
+    });
   });
 
   it('clamps valid channel edits and restores invalid input', () => {
     const { onChange } = renderPicker();
-    fireEvent.click(screen.getByRole('button', { name: 'RGB' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'RGB' }));
     onChange.mockClear();
     const red = screen.getByLabelText('R');
     fireEvent.change(red, { target: { value: '300' } });
@@ -174,16 +380,16 @@ describe('ColorPicker', () => {
     expect(onChange).toHaveBeenCalled();
 
     const restore = screen.getByRole('button', { name: 'Restore original color' });
-    expect(restore).toHaveStyle({ backgroundColor: 'rgb(255, 0, 0)' });
+    expect(restore).toHaveStyle({ '--picker-swatch-color': 'rgb(255, 0, 0)' });
     fireEvent.click(restore);
-    expect(onChange).toHaveBeenLastCalledWith(expect.stringMatching(/^hsl\(/));
+    expect(onChange).toHaveBeenLastCalledWith('#ff0000');
   });
 
   it('keeps hue and saturation across HSB field edits that pass through black', () => {
     const { onChange } = renderControlledPicker('#ff0000');
-    fireEvent.click(screen.getByRole('button', { name: 'HSB' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'HSB' }));
     expect(screen.getByLabelText('H')).toHaveValue('0');
-    expect(screen.getByLabelText('S')).toHaveValue('100');
+    expect(screen.getByLabelText('S')).toHaveValue('100%');
 
     // Brightness 0 is black, which has no recoverable hue/saturation in RGB:
     // the fields must keep showing the HSB the user is editing.
@@ -192,7 +398,7 @@ describe('ColorPicker', () => {
     fireEvent.blur(brightness);
     expect(onChange).toHaveBeenLastCalledWith('rgb(0, 0, 0)');
     expect(screen.getByLabelText('H')).toHaveValue('0');
-    expect(screen.getByLabelText('S')).toHaveValue('100');
+    expect(screen.getByLabelText('S')).toHaveValue('100%');
 
     // Typing a hue while black, then raising brightness, gives that hue back.
     const hueField = screen.getByLabelText('H');
@@ -212,7 +418,7 @@ describe('ColorPicker', () => {
       keyCode: 39,
       which: 39,
     });
-    expect(onChange).toHaveBeenLastCalledWith(expect.stringMatching(/^hsl/));
+    expect(onChange).toHaveBeenLastCalledWith(expect.stringMatching(/^rgb/));
   });
 
   it('copies the selected CSS representation and uses RGB for HSB', async () => {
@@ -220,7 +426,7 @@ describe('ColorPicker', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     renderPicker('#ff0000');
 
-    fireEvent.click(screen.getByRole('button', { name: 'RGB' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'RGB' }));
     fireEvent.click(screen.getByRole('button', { name: /Copy color|Copied color/ }));
     await waitFor(() => expect(writeText).toHaveBeenLastCalledWith('rgb(255, 0, 0)'));
     expect(screen.getByRole('button', { name: 'Copied color' })).toHaveAttribute(
@@ -229,7 +435,7 @@ describe('ColorPicker', () => {
     );
     expect(screen.getByRole('button', { name: 'Copied color' })).toHaveClass('is-copied');
 
-    fireEvent.click(screen.getByRole('button', { name: 'HSB' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'HSB' }));
     fireEvent.click(screen.getByRole('button', { name: /Copy color|Copied color/ }));
     await waitFor(() => expect(writeText).toHaveBeenLastCalledWith('rgb(255, 0, 0)'));
   });
@@ -241,7 +447,7 @@ describe('ColorPicker', () => {
     };
     const { onChange } = renderPicker();
     fireEvent.click(screen.getByRole('button', { name: 'Eyedropper' }));
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith(expect.stringMatching(/^hsl\(/)));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('#00ff00'));
   });
 
   it('uses the native color sampler when the browser EyeDropper is unavailable', async () => {
@@ -252,7 +458,7 @@ describe('ColorPicker', () => {
 
     await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith(expect.stringMatching(/^hsl\(/)));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('#00ff00'));
   });
 
   it('does not open overlapping native color samplers on rapid clicks', async () => {
@@ -289,5 +495,40 @@ describe('ColorPicker', () => {
   it('has no recent-variable footer', () => {
     renderPicker();
     expect(screen.queryByText('Recent Variables')).not.toBeInTheDocument();
+  });
+
+  it('shows white and black for empty Recent and records a selection', () => {
+    window.localStorage.removeItem(recentFallbackStorageKey);
+    const onChange = vi.fn();
+    render(
+      <ColorPicker
+        value="#ff0000"
+        onChange={onChange}
+        onClose={() => undefined}
+        projectPath={recentFallbackProjectPath}
+      />
+    );
+
+    expect(screen.queryByText('No recent colors yet.')).not.toBeInTheDocument();
+    expect(window.localStorage.getItem(recentFallbackStorageKey)).toBeNull();
+    const white = screen.getByRole('button', { name: 'Use recent color #ffffff' });
+    expect(white.querySelector('.ss-color-picker__recent-swatch')).toHaveStyle({
+      '--picker-swatch-color': '#ffffff',
+    });
+    const black = screen.getByRole('button', { name: 'Use recent color #000000' });
+    expect(black.querySelector('.ss-color-picker__recent-swatch')).toHaveStyle({
+      '--picker-swatch-color': '#000000',
+    });
+
+    fireEvent.click(white);
+
+    expect(onChange).toHaveBeenLastCalledWith('#ffffff');
+    expect(JSON.parse(window.localStorage.getItem(recentFallbackStorageKey) ?? '[]')).toEqual([
+      'rgb(255, 255, 255)',
+    ]);
+    expect(screen.getByRole('button', { name: 'Use recent color #ffffff' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Use recent color #000000' })
+    ).not.toBeInTheDocument();
   });
 });
