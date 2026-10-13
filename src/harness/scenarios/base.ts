@@ -192,6 +192,9 @@ export const baseCommands: CommandMap = {
   // invokes, so they were the last two captures still badged incomplete.
   stop_static_server: null,
   set_element_breadcrumb_enabled: null,
+  // `Result<(), CommandError>`; leaving Preview now tears down the project's
+  // preview proxy along with its dev server.
+  stop_preview_proxy: null,
 
   // ---- agents -------------------------------------------------------------
   get_agents_status: [
