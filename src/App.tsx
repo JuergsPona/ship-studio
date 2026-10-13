@@ -512,6 +512,32 @@ function AppContents({ initialProjectPath }: AppProps) {
     checkPluginSuggestion,
   });
 
+  // With background retention off, leaving Preview stopped this project's
+  // server. Only the Preview tab button and its shortcut restart it, so every
+  // other way back (un-hiding focus mode, comments, dev-server logs) would land
+  // on a Preview with no server. Start it on the hidden→visible transition for
+  // the same project; project switches start their own server, and an explicit
+  // Stop while Preview stays visible is left alone.
+  const handleStartDevServerRef = useRef(handleStartDevServer);
+  handleStartDevServerRef.current = handleStartDevServer;
+  const previousPreviewVisibilityRef = useRef({
+    visiblePath: visiblePreviewPath,
+    projectPath: currentProject?.path ?? null,
+    view,
+  });
+  useEffect(() => {
+    const previous = previousPreviewVisibilityRef.current;
+    previousPreviewVisibilityRef.current = {
+      visiblePath: visiblePreviewPath,
+      projectPath: currentProject?.path ?? null,
+      view,
+    };
+    if (keepDevServersRunning !== false || visiblePreviewPath === null) return;
+    if (previous.visiblePath !== null || previous.view !== 'workspace') return;
+    if (previous.projectPath !== visiblePreviewPath) return;
+    void handleStartDevServerRef.current();
+  }, [keepDevServersRunning, visiblePreviewPath, currentProject?.path, view]);
+
   // Save port handler: persist, update state, close modal, restart dev server
   const handleSavePort = useCallback(
     async (newPort: number) => {
