@@ -135,6 +135,14 @@ function fillInput(el: HTMLElement, value: string): void {
   el.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+function selectOption(el: HTMLElement, value: string): void {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const setValue = descriptor?.set;
+  if (setValue) Reflect.apply(setValue, el, [value]);
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
 /**
  * Perform the scenario's interactions in order: `openSelector` first, then any
  * `steps`. A step that never finds its selector stops the sequence — later
@@ -148,7 +156,7 @@ async function runSteps(): Promise<void> {
   ];
 
   for (const step of steps) {
-    const selector = step.click ?? step.fill;
+    const selector = step.click ?? step.fill ?? step.select;
     if (!selector) continue;
     const el = await waitFor(selector);
     if (!el) {
@@ -159,9 +167,12 @@ async function runSteps(): Promise<void> {
     if (step.click) {
       el.click();
       stepLog.push(`clicked ${selector}`);
-    } else {
+    } else if (step.fill) {
       fillInput(el, step.value ?? '');
       stepLog.push(`filled ${selector}`);
+    } else {
+      selectOption(el, step.value ?? '');
+      stepLog.push(`selected ${step.value ?? ''} in ${selector}`);
     }
     // One frame, so this step's render lands before the next step looks for
     // the element it produces.

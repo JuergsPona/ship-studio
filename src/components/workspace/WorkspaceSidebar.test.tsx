@@ -149,6 +149,108 @@ describe('WorkspaceSidebar project activity indicator', () => {
     });
   });
 
+  it('opens a full-width Settings summary in the sidebar footer and restores the gear trigger', async () => {
+    const { container } = render(<WorkspaceSidebar {...sidebarProps()} />, { wrapper: Providers });
+
+    const trigger = screen.getByRole('button', { name: 'Settings & Help' });
+    expect(trigger).toHaveAttribute('data-settings-menu-trigger', 'workspace');
+    expect(trigger).toHaveClass('button--icon-only');
+    expect(trigger).not.toHaveTextContent('Settings');
+    expect(trigger.querySelector('.workspace-switcher-chevron')).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+
+    const menu = await screen.findByRole('menu');
+    const drawer = menu.closest('.workspace-sidebar-settings-menu');
+    expect(drawer).toHaveClass('is-open');
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(trigger).toHaveClass('workspace-sidebar-settings-summary', 'button--fill');
+    expect(trigger).not.toHaveClass('button--icon-only');
+    expect(trigger).toHaveTextContent('Settings');
+    const settingsChevron = trigger.querySelector('.workspace-switcher-chevron.is-open');
+    expect(settingsChevron).toBeInTheDocument();
+    expect(settingsChevron?.querySelector('[data-icon-name="ChevronIcon"]')).toBeInTheDocument();
+    const settingsLabel = trigger.querySelector('.workspace-switcher-name')!;
+    expect(
+      settingsLabel.compareDocumentPosition(settingsChevron!) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      menu.closest('.workspace-sidebar-footer-actions.has-settings-drawer')
+    ).toBeInTheDocument();
+    expect(menu.closest('.workspace-sidebar')).toBeInTheDocument();
+    expect(container.contains(menu)).toBe(true);
+    expect(menu.querySelector('[data-settings-item="bug-reports"]')).toBeInTheDocument();
+    expect(menu.querySelector('[data-settings-item="feature-request"]')).toBeInTheDocument();
+    expect(menu.querySelector('.ss-dropdown__divider')).not.toBeInTheDocument();
+
+    fireEvent.click(trigger);
+
+    await waitFor(() => {
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      expect(trigger).toHaveClass('button--icon-only');
+      expect(trigger).not.toHaveTextContent('Settings');
+      expect(trigger.querySelector('.workspace-switcher-chevron')).not.toBeInTheDocument();
+    });
+  });
+
+  it('dismisses the Settings drawer with Escape and an outside click', async () => {
+    render(<WorkspaceSidebar {...sidebarProps()} />, { wrapper: Providers });
+    const trigger = screen.getByRole('button', { name: 'Settings & Help' });
+
+    fireEvent.click(trigger);
+    await screen.findByRole('menu');
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      expect(trigger).toHaveFocus();
+    });
+
+    fireEvent.click(trigger);
+    await screen.findByRole('menu');
+    fireEvent.mouseDown(document.body);
+
+    await waitFor(() => {
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    });
+  });
+
+  it('expands the collapsed rail before keeping Settings open and restores its gear on close', async () => {
+    const onToggleSidebar = vi.fn();
+    const props = sidebarProps();
+    const { rerender } = render(
+      <WorkspaceSidebar {...props} isSidebarHidden onToggleSidebar={onToggleSidebar} />,
+      { wrapper: Providers }
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Settings & Help' });
+    expect(trigger).toHaveClass('button--icon-only');
+    expect(trigger.querySelector('.workspace-switcher-chevron')).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+    expect(onToggleSidebar).toHaveBeenCalledOnce();
+
+    rerender(
+      <WorkspaceSidebar {...props} isSidebarHidden={false} onToggleSidebar={onToggleSidebar} />
+    );
+
+    await waitFor(() => {
+      expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      expect(trigger).toHaveTextContent('Settings');
+      expect(trigger).toHaveClass('workspace-sidebar-settings-summary', 'button--fill');
+    });
+    expect(
+      trigger.querySelector('.workspace-switcher-chevron.is-open [data-icon-name="ChevronIcon"]')
+    ).toBeInTheDocument();
+
+    fireEvent.click(trigger);
+
+    await waitFor(() => {
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      expect(trigger).toHaveClass('button--icon-only');
+      expect(trigger.querySelector('.workspace-switcher-chevron')).not.toBeInTheDocument();
+    });
+  });
+
   it('collapses an empty Active group by default', async () => {
     sessionRegistry._resetForTests();
 
@@ -344,7 +446,7 @@ describe('WorkspaceSidebar project activity indicator', () => {
       'button--default',
       'button--icon-only'
     );
-    expect(screen.getByRole('button', { name: 'App settings' })).toHaveClass(
+    expect(screen.getByRole('button', { name: 'Settings & Help' })).toHaveClass(
       'button--default',
       'button--icon-only'
     );

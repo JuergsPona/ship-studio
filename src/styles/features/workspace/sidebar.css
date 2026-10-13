@@ -1288,7 +1288,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--button-gap);
+  gap: var(--button-group-spacing);
 }
 
 .workspace-sidebar-footer-actions > * {

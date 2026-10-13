@@ -174,6 +174,8 @@ export function ProjectList({
   // Settings / Changelog modal state
   const [showSettings, setShowSettings] = useState(false);
   const changelogModal = useModal('changelog');
+  const bugReportModal = useModal('bugReport');
+  const featureRequestModal = useModal('featureRequest');
   const {
     dashboardHeaderHidden,
     calendarHidden,
@@ -660,6 +662,8 @@ export function ProjectList({
 
         <DashboardPreferencesCard
           onOpenSettings={() => setShowSettings(true)}
+          onOpenBugReports={bugReportModal.open}
+          onOpenFeatureRequest={featureRequestModal.open}
           onOpenChangelog={() => changelogModal.open()}
         />
 

@@ -21,6 +21,8 @@ interface ModalFrameBaseProps {
   dismissable?: boolean;
   /** Optional class appended to the content container for width/tone overrides. */
   className?: string;
+  /** Optional actions rendered between the title and close control in the header. */
+  headerActions?: ReactNode;
   /** Render a close "×" in the header. Ignored when no title is provided. */
   showCloseButton?: boolean;
   /** Focus this element when the dialog opens, before falling back to autoFocus/first control. */
@@ -290,6 +292,7 @@ export function ModalFrame({
   children,
   dismissable = true,
   className,
+  headerActions,
   showCloseButton = true,
   ariaLabel,
   initialFocusRef,
@@ -455,6 +458,7 @@ export function ModalFrame({
             <div id={titleId} className="modal-frame-title">
               {title}
             </div>
+            {headerActions && <div className="modal-frame-header-actions">{headerActions}</div>}
             {showCloseButton && (
               <IconButton
                 variant="ghost"

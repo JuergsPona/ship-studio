@@ -6,6 +6,7 @@
 
 import type { Scenario } from '../types';
 import { projects, readySetupItems } from './base';
+import { workspaceCommands, WORKSPACE_PROJECT } from './workspace';
 
 const notInstalled = (id: string, friendlyName: string) => ({
   id,
@@ -21,6 +22,27 @@ export const appScenarios: Scenario[] = [
     looksRightWhen:
       'Projects render as cards with readable names, consistent spacing, and no placeholder or "undefined" text anywhere.',
     commands: {},
+  },
+  {
+    id: 'dashboard-settings-menu',
+    title: 'Dashboard — Preferences menu',
+    looksRightWhen:
+      "The Preferences row opens a compact menu with App Settings, Report Bug, Feature Request, and What's New; the bug row uses the shared BugReportIcon.",
+    openSelector: '[data-education-id="settings-button"]',
+    requires: '.ss-dropdown__menu.settings-menu',
+    clipSelector: '.ss-dropdown__menu.settings-menu',
+    commands: {},
+  },
+  {
+    id: 'workspace-settings-menu',
+    title: 'Workspace — Settings menu',
+    looksRightWhen:
+      "The bottom-left Settings & Help control opens the same compact menu with App Settings, Report Bug, Feature Request, and What's New; the bug row uses the shared BugReportIcon.",
+    project: WORKSPACE_PROJECT,
+    openSelector: '[aria-label="Settings & Help"]',
+    requires: '.ss-dropdown__menu.settings-menu',
+    clipSelector: '.ss-dropdown__menu.settings-menu',
+    commands: { ...workspaceCommands },
   },
   {
     id: 'dashboard-cards-collapsed',

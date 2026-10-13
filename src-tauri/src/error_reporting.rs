@@ -33,6 +33,69 @@ use std::time::{Duration, Instant};
 const ENDPOINT: &str = "https://shipstudio-admin-agent.vercel.app/report";
 const SEND_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Delivery receipts are separate from `bug-report-throttle.json`: the
+/// throttle records attempts before network I/O, while this ledger records
+/// only responses the endpoint explicitly accepted.
+const RECEIPTS_FILENAME: &str = "automatic-report-receipts.json";
+const RECEIPT_RETENTION_SECS: i64 = 30 * 24 * 60 * 60;
+const MAX_REPORT_RECEIPTS: usize = 50;
+const MAX_RECEIPT_SUMMARY_CHARS: usize = 240;
+const MAX_RECEIPT_SOURCE_CHARS: usize = 80;
+const MAX_RECEIPT_ISSUE_URL_BYTES: usize = 512;
+const MAX_ACCEPTANCE_RESPONSE_BYTES: usize = 16 * 1024;
+const MAX_RECEIPT_LEDGER_BYTES: u64 = 512 * 1024;
+
+static RECEIPT_LEDGER_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomaticReportReceipt {
+    pub timestamp: String,
+    pub kind: AutomaticReportKind,
+    pub source: String,
+    pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issue_url: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AutomaticReportKind {
+    Crash,
+    Error,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReceiptLedger {
+    #[serde(default)]
+    receipts: Vec<AutomaticReportReceipt>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutomaticReportStatusReason {
+    DevelopmentBuild,
+    ConsentDisabled,
+    MissingSecret,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomaticReportStatus {
+    /// Whether the current build and consent setting allow reporting.
+    pub enabled: bool,
+    /// Whether this binary was built with the endpoint secret.
+    pub configured: bool,
+    /// Why delivery is unavailable, if the current build cannot send reports.
+    pub reason: Option<AutomaticReportStatusReason>,
+    pub receipts: Vec<AutomaticReportReceipt>,
+}
+
+struct AcceptedReport {
+    issue_url: Option<String>,
+}
+
 /// Hard cap on reports per app session — a pathological error loop with
 /// varying messages (which defeat fingerprint dedup) stops here.
 const MAX_REPORTS_PER_SESSION: usize = 25;
@@ -41,10 +104,15 @@ const MAX_REPORTS_PER_SESSION: usize = 25;
 static REPORTED: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 
 fn enabled() -> bool {
+    reporting_build_enabled() && reporting_consent_enabled()
+}
+
+fn reporting_build_enabled() -> bool {
     let force = std::env::var("SHIPSTUDIO_BUG_REPORT_FORCE").ok().as_deref() == Some("1");
-    if cfg!(debug_assertions) && !force {
-        return false;
-    }
+    !cfg!(debug_assertions) || force
+}
+
+fn reporting_consent_enabled() -> bool {
     // Privacy: the Settings → "Usage analytics & error reports" toggle governs
     // this pipeline too. Opted-out users share nothing — not even scrubbed
     // crash reports. This is the single authoritative check; every report
@@ -133,6 +201,281 @@ fn throttle_path() -> Option<PathBuf> {
     }
 }
 
+fn receipt_ledger_path() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        return dirs::home_dir().map(|h| {
+            h.join("Library/Application Support/ShipStudio")
+                .join(RECEIPTS_FILENAME)
+        });
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return dirs::data_local_dir().map(|d| d.join("ShipStudio").join(RECEIPTS_FILENAME));
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        return dirs::data_local_dir().map(|d| d.join("ship-studio").join(RECEIPTS_FILENAME));
+    }
+
+    #[allow(unreachable_code)]
+    None
+}
+
+fn read_receipts(path: &Path, now: chrono::DateTime<chrono::Utc>) -> Vec<AutomaticReportReceipt> {
+    let mut receipts = read_receipt_file(path);
+    prune_receipts(&mut receipts, now);
+    receipts
+}
+
+fn read_receipt_file(path: &Path) -> Vec<AutomaticReportReceipt> {
+    if std::fs::metadata(path)
+        .map(|metadata| metadata.len() > MAX_RECEIPT_LEDGER_BYTES)
+        .unwrap_or(true)
+    {
+        return Vec::new();
+    }
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<ReceiptLedger>(&contents).ok())
+        .map(|ledger| ledger.receipts)
+        .unwrap_or_default()
+}
+
+fn prune_receipts(receipts: &mut Vec<AutomaticReportReceipt>, now: chrono::DateTime<chrono::Utc>) {
+    let cutoff = now - chrono::Duration::seconds(RECEIPT_RETENTION_SECS);
+    receipts.retain(|receipt| {
+        chrono::DateTime::parse_from_rfc3339(&receipt.timestamp)
+            .map(|timestamp| timestamp.with_timezone(&chrono::Utc) >= cutoff)
+            .unwrap_or(false)
+    });
+    receipts.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    receipts.truncate(MAX_REPORT_RECEIPTS);
+}
+
+fn persist_receipt(
+    path: &Path,
+    receipt: AutomaticReportReceipt,
+    now: chrono::DateTime<chrono::Utc>,
+) {
+    let Ok(_guard) = RECEIPT_LEDGER_LOCK.lock() else {
+        return;
+    };
+
+    let mut receipts = read_receipts(path, now.clone());
+    receipts.push(receipt);
+    prune_receipts(&mut receipts, now);
+    write_receipts(path, &receipts);
+}
+
+fn persist_panic_receipt(
+    path: &Path,
+    receipt: AutomaticReportReceipt,
+    now: chrono::DateTime<chrono::Utc>,
+) {
+    // The panic hook joins this request thread to preserve the send timeout.
+    // Never wait on another report's receipt write here; a missing local
+    // receipt is safer than extending a crash path indefinitely.
+    let Ok(_guard) = RECEIPT_LEDGER_LOCK.try_lock() else {
+        return;
+    };
+    let mut receipts = read_receipts(path, now.clone());
+    receipts.push(receipt);
+    prune_receipts(&mut receipts, now);
+    write_receipts(path, &receipts);
+}
+
+fn write_receipts(path: &Path, receipts: &[AutomaticReportReceipt]) {
+    let ledger = ReceiptLedger {
+        receipts: receipts.to_vec(),
+    };
+    let Ok(contents) = serde_json::to_vec(&ledger) else {
+        return;
+    };
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+
+    let Ok(mut temporary) = tempfile::NamedTempFile::new_in(parent) else {
+        return;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // NamedTempFile is owner-only by default; explicitly keep that
+        // contract for this local copy of error summaries too.
+        let Ok(metadata) = temporary.as_file().metadata() else {
+            return;
+        };
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o600);
+        if temporary.as_file().set_permissions(permissions).is_err() {
+            return;
+        }
+    }
+    use std::io::Write;
+    if temporary.write_all(&contents).is_err() || temporary.as_file().sync_all().is_err() {
+        return;
+    }
+    let _ = temporary.persist(path);
+}
+
+fn read_recent_receipts(
+    path: &Path,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Vec<AutomaticReportReceipt> {
+    let Ok(_guard) = RECEIPT_LEDGER_LOCK.lock() else {
+        return Vec::new();
+    };
+    let mut receipts = read_receipt_file(path);
+    let prior_len = receipts.len();
+    prune_receipts(&mut receipts, now);
+    if receipts.len() != prior_len {
+        write_receipts(path, &receipts);
+    }
+    receipts
+}
+
+fn make_receipt(
+    source: &str,
+    message: &str,
+    issue_url: Option<String>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> AutomaticReportReceipt {
+    let safe_source: String = scrub_string(source)
+        .chars()
+        .take(MAX_RECEIPT_SOURCE_CHARS)
+        .collect();
+    let summary = safe_receipt_summary(message);
+
+    AutomaticReportReceipt {
+        timestamp: now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        kind: if matches!(source, "panic" | "frontend-crash") {
+            AutomaticReportKind::Crash
+        } else {
+            AutomaticReportKind::Error
+        },
+        source: safe_source,
+        summary,
+        issue_url,
+    }
+}
+
+/// Keep receipt summaries useful while removing common inline credentials and
+/// account identifiers in addition to the home paths handled by
+/// `logging::scrub_string`.
+fn safe_receipt_summary(message: &str) -> String {
+    let scrubbed_message = scrub_string(message);
+    let first_line = scrubbed_message.lines().next().unwrap_or_default();
+    let mut safe_words = Vec::new();
+    let mut redact_next = false;
+
+    for word in first_line.split_whitespace() {
+        let lower = word.to_ascii_lowercase();
+        if redact_next {
+            if matches!(word, "=" | ":") {
+                safe_words.push(word.to_string());
+                continue;
+            }
+            safe_words.push("<redacted>".to_string());
+            redact_next = lower == "bearer";
+            continue;
+        }
+
+        if let Some(separator) = word.find(|character| character == '=' || character == ':') {
+            if is_sensitive_receipt_label(&word[..separator]) {
+                let value = word[separator + 1..]
+                    .trim_matches(|character| character == '"' || character == '\'');
+                if value.is_empty() {
+                    safe_words.push(word[..=separator].to_string());
+                    redact_next = true;
+                } else {
+                    safe_words.push(format!("{}<redacted>", &word[..=separator]));
+                }
+                continue;
+            }
+        }
+
+        let label = word.trim_matches(|character: char| {
+            matches!(
+                character,
+                '"' | '\'' | ',' | ';' | '(' | ')' | '[' | ']' | '{' | '}'
+            )
+        });
+        if is_sensitive_receipt_label(label) {
+            safe_words.push(word.to_string());
+            redact_next = true;
+        } else if looks_like_receipt_secret(&lower) || looks_like_email(label) {
+            safe_words.push("<redacted>".to_string());
+        } else {
+            safe_words.push(word.to_string());
+        }
+    }
+
+    safe_words
+        .join(" ")
+        .chars()
+        .take(MAX_RECEIPT_SUMMARY_CHARS)
+        .collect()
+}
+
+fn is_sensitive_receipt_label(label: &str) -> bool {
+    let label = label
+        .trim_matches(|character: char| {
+            matches!(character, '"' | '\'' | '{' | '}' | '[' | ']' | ',')
+        })
+        .to_ascii_lowercase();
+    matches!(
+        label.as_str(),
+        "token"
+            | "access_token"
+            | "refresh_token"
+            | "api_key"
+            | "api-key"
+            | "secret"
+            | "client_secret"
+            | "password"
+            | "authorization"
+            | "cookie"
+            | "username"
+            | "user"
+            | "user_id"
+            | "email"
+    ) || ["_token", "_secret", "_password", "_key", "_email"]
+        .iter()
+        .any(|suffix| label.ends_with(suffix))
+}
+
+fn looks_like_receipt_secret(word: &str) -> bool {
+    [
+        "ghp_",
+        "github_pat_",
+        "gho_",
+        "ghu_",
+        "ghs_",
+        "ghr_",
+        "sk-ant-",
+        "sk-proj-",
+        "sk-",
+        "xoxb-",
+        "xoxp-",
+        "xapp-",
+        "akia",
+    ]
+    .iter()
+    .any(|prefix| word.starts_with(prefix))
+}
+
+fn looks_like_email(word: &str) -> bool {
+    word.split_once('@')
+        .is_some_and(|(_, domain)| domain.contains('.'))
+}
+
 /// Check + record `key` against the persistent throttle. Corrupt or missing
 /// files reset to an empty throttle (fail open); write failures are ignored.
 fn passes_persistent_throttle(path: &Path, key: &str, now: i64, today: &str) -> bool {
@@ -194,17 +537,17 @@ fn passes_persistent_throttle(path: &Path, key: &str, now: i64, today: &str) -> 
 // recorded, so a genuine recurrence later can still report.
 
 const MIN_GAP: Duration = Duration::from_secs(5);
-static LAST_REPORT_AT: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
+static LAST_REPORT_ATTEMPT_AT: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
 
 fn within_min_gap() -> bool {
-    match LAST_REPORT_AT.lock() {
+    match LAST_REPORT_ATTEMPT_AT.lock() {
         Ok(guard) => matches!(*guard, Some(t) if t.elapsed() < MIN_GAP),
         Err(_) => true, // poisoned: suppress rather than risk a storm
     }
 }
 
-fn mark_report_sent() {
-    if let Ok(mut guard) = LAST_REPORT_AT.lock() {
+fn mark_report_attempted() {
+    if let Ok(mut guard) = LAST_REPORT_ATTEMPT_AT.lock() {
         *guard = Some(Instant::now());
     }
 }
@@ -244,7 +587,7 @@ fn allow_report_with_gap(key: &str, respect_gap: bool) -> bool {
         }
     };
     if allowed {
-        mark_report_sent();
+        mark_report_attempted();
     }
     allowed
 }
@@ -274,14 +617,71 @@ fn build_body(
     })
 }
 
-async fn post(secret: &'static str, body: serde_json::Value) {
-    let _ = reqwest::Client::new()
+fn validated_issue_url(value: &serde_json::Value) -> Option<String> {
+    let candidate = value.as_str()?;
+    if candidate.len() > MAX_RECEIPT_ISSUE_URL_BYTES {
+        return None;
+    }
+    let parsed = url::Url::parse(candidate).ok()?;
+    if parsed.scheme() != "https"
+        || parsed.host_str() != Some("github.com")
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.port().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return None;
+    }
+
+    let path: Vec<&str> = parsed
+        .path_segments()?
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    if path.len() != 4
+        || path[0].is_empty()
+        || path[1].is_empty()
+        || path[2] != "issues"
+        || path[3].is_empty()
+        || !path[3].chars().all(|character| character.is_ascii_digit())
+    {
+        return None;
+    }
+
+    Some(parsed.to_string())
+}
+
+fn parse_accepted_response(status: reqwest::StatusCode, body: &[u8]) -> Option<AcceptedReport> {
+    if !status.is_success() {
+        return None;
+    }
+    let response: serde_json::Value = serde_json::from_slice(body).ok()?;
+    if response.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+        return None;
+    }
+
+    let issue_url = response
+        .get("issueUrl")
+        .or_else(|| response.get("issue_url"))
+        .and_then(validated_issue_url);
+    Some(AcceptedReport { issue_url })
+}
+
+async fn post(secret: &'static str, body: serde_json::Value) -> Option<AcceptedReport> {
+    let response = reqwest::Client::new()
         .post(ENDPOINT)
         .bearer_auth(secret)
         .json(&body)
         .timeout(SEND_TIMEOUT)
         .send()
         .await;
+    let response = response.ok()?;
+    let status = response.status();
+    let body = response.bytes().await.ok()?;
+    if body.len() > MAX_ACCEPTANCE_RESPONSE_BYTES {
+        return None;
+    }
+    parse_accepted_response(status, &body)
 }
 
 /// Report an error to the admin agent. Fire-and-forget: returns immediately,
@@ -299,8 +699,17 @@ pub fn report_error(message: &str, stack: Option<&str>, source: &str, fingerprin
         return;
     }
     let body = build_body(message, stack, source, fingerprint);
+    let receipt_source = source.to_string();
+    let receipt_message = message.to_string();
     tauri::async_runtime::spawn(async move {
-        post(secret, body).await;
+        if let Some(accepted) = post(secret, body).await {
+            if let Some(path) = receipt_ledger_path() {
+                let now = chrono::Utc::now();
+                let receipt =
+                    make_receipt(&receipt_source, &receipt_message, accepted.issue_url, now);
+                persist_receipt(&path, receipt, now);
+            }
+        }
     });
 }
 
@@ -343,6 +752,7 @@ fn report_panic(message: &str, location: Option<&str>, backtrace: &str) {
         "panic",
         fingerprint.as_deref(),
     );
+    let receipt_message = format!("panic: {message}");
     // Dedicated thread + single-threaded runtime: the panic hook can fire on
     // any thread, including inside an async context where block_on would panic.
     let handle = std::thread::spawn(move || {
@@ -350,7 +760,13 @@ fn report_panic(message: &str, location: Option<&str>, backtrace: &str) {
             .enable_all()
             .build()
         {
-            rt.block_on(post(secret, body));
+            if let Some(accepted) = rt.block_on(post(secret, body)) {
+                if let Some(path) = receipt_ledger_path() {
+                    let now = chrono::Utc::now();
+                    let receipt = make_receipt("panic", &receipt_message, accepted.issue_url, now);
+                    persist_panic_receipt(&path, receipt, now);
+                }
+            }
         }
     });
     let _ = handle.join();
@@ -639,6 +1055,37 @@ pub fn report_frontend_error(
     );
 }
 
+/// Read the recent reports whose delivery was explicitly accepted by the
+/// admin-agent endpoint. Attempt throttles live in a different file and are
+/// never exposed as receipts.
+#[tauri::command]
+#[tracing::instrument(skip_all)]
+pub fn get_automatic_report_status() -> Result<AutomaticReportStatus, crate::errors::CommandError> {
+    let build_enabled = reporting_build_enabled();
+    let consent_enabled = reporting_consent_enabled();
+    let configured = secret().is_some();
+    let enabled = build_enabled && consent_enabled;
+    let reason = if !build_enabled {
+        Some(AutomaticReportStatusReason::DevelopmentBuild)
+    } else if !consent_enabled {
+        Some(AutomaticReportStatusReason::ConsentDisabled)
+    } else if !configured {
+        Some(AutomaticReportStatusReason::MissingSecret)
+    } else {
+        None
+    };
+    let receipts = receipt_ledger_path()
+        .map(|path| read_recent_receipts(&path, chrono::Utc::now()))
+        .unwrap_or_default();
+
+    Ok(AutomaticReportStatus {
+        enabled,
+        configured,
+        reason,
+        receipts,
+    })
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -715,6 +1162,180 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn accepted_delivery_requires_success_status_and_explicit_ok() {
+        let accepted = parse_accepted_response(
+            reqwest::StatusCode::OK,
+            br#"{"ok":true,"issueUrl":"https://github.com/ship-studio/ship-studio/issues/42"}"#,
+        )
+        .expect("documented endpoint acceptance should be recorded");
+        assert_eq!(
+            accepted.issue_url.as_deref(),
+            Some("https://github.com/ship-studio/ship-studio/issues/42")
+        );
+
+        assert!(parse_accepted_response(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            br#"{"ok":true}"#
+        )
+        .is_none());
+        assert!(parse_accepted_response(reqwest::StatusCode::OK, br#"{"ok":false}"#).is_none());
+        assert!(parse_accepted_response(reqwest::StatusCode::OK, b"not json").is_none());
+        assert!(parse_accepted_response(reqwest::StatusCode::OK, b"{}").is_none());
+    }
+
+    #[test]
+    fn receipt_only_keeps_a_valid_endpoint_returned_github_issue_url() {
+        let invalid_urls = [
+            "http://github.com/ship-studio/ship-studio/issues/42",
+            "https://github.com.evil.test/ship-studio/ship-studio/issues/42",
+            "https://github.com/ship-studio/ship-studio/pull/42",
+            "https://github.com/ship-studio/ship-studio/issues/not-a-number",
+            "https://attacker@github.com/ship-studio/ship-studio/issues/42",
+        ];
+
+        for url in invalid_urls {
+            let response = format!(r#"{{"ok":true,"issueUrl":"{url}"}}"#);
+            let accepted = parse_accepted_response(reqwest::StatusCode::OK, response.as_bytes())
+                .expect("valid acceptance must remain accepted without a URL");
+            assert!(
+                accepted.issue_url.is_none(),
+                "untrusted URL was kept: {url}"
+            );
+        }
+
+        let accepted = parse_accepted_response(
+            reqwest::StatusCode::OK,
+            br#"{"ok":true,"issue_url":"https://github.com/ship-studio/ship-studio/issues/42"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            accepted.issue_url.as_deref(),
+            Some("https://github.com/ship-studio/ship-studio/issues/42")
+        );
+    }
+
+    #[test]
+    fn confirmed_receipts_are_scrubbed_bounded_and_persisted_separately() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(RECEIPTS_FILENAME);
+        let now = chrono::Utc::now();
+        let receipt = make_receipt(
+            "frontend-log",
+            &format!("failed at /Users/julian/project: {}", "x".repeat(400)),
+            None,
+            now.clone(),
+        );
+
+        assert!(matches!(receipt.kind, AutomaticReportKind::Error));
+        assert!(!receipt.summary.contains("julian"));
+        assert!(receipt.summary.contains("/Users/<redacted>"));
+        assert!(receipt.summary.chars().count() <= MAX_RECEIPT_SUMMARY_CHARS);
+
+        persist_receipt(&path, receipt, now.clone());
+        let stored = read_receipts(&path, now.clone());
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].source, "frontend-log");
+        assert_eq!(
+            stored[0].timestamp,
+            now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+        );
+
+        // The attempted-send throttle remains its own file and is never
+        // populated by recording an accepted response.
+        assert!(!dir.path().join("bug-report-throttle.json").exists());
+    }
+
+    #[test]
+    fn receipt_ledger_prunes_old_entries_and_caps_recent_history() {
+        let now = chrono::Utc::now();
+        let old = make_receipt(
+            "panic",
+            "old crash",
+            None,
+            now.clone() - chrono::Duration::seconds(RECEIPT_RETENTION_SECS + 1),
+        );
+        let mut receipts = vec![old];
+        for index in 0..(MAX_REPORT_RECEIPTS + 2) {
+            receipts.push(make_receipt(
+                "command-error",
+                &format!("error {index}"),
+                None,
+                now.clone() + chrono::Duration::seconds(index as i64),
+            ));
+        }
+
+        prune_receipts(&mut receipts, now);
+        assert_eq!(receipts.len(), MAX_REPORT_RECEIPTS);
+        assert!(receipts
+            .iter()
+            .all(|receipt| receipt.summary != "old crash"));
+        assert_eq!(
+            receipts[0].summary,
+            format!("error {}", MAX_REPORT_RECEIPTS + 1)
+        );
+    }
+
+    #[test]
+    fn panic_receipt_is_classified_as_crash() {
+        let receipt = make_receipt("panic", "panic: boom", None, chrono::Utc::now());
+        assert!(matches!(receipt.kind, AutomaticReportKind::Crash));
+    }
+
+    #[test]
+    fn receipt_summary_redacts_credentials_and_account_identifiers() {
+        let summary = safe_receipt_summary(
+            "Authorization: Bearer bearer-secret API_KEY=api-secret user julian email julian@example.com ghp_github-secret",
+        );
+
+        for secret in ["bearer-secret", "api-secret", "julian", "github-secret"] {
+            assert!(
+                !summary.contains(secret),
+                "summary leaked {secret}: {summary}"
+            );
+        }
+        assert!(summary.contains("<redacted>"));
+
+        let json_summary = safe_receipt_summary(r#"{"api_key":"json-secret"}"#);
+        assert!(!json_summary.contains("json-secret"));
+    }
+
+    #[test]
+    fn only_explicit_frontend_crashes_are_classified_as_crashes() {
+        let receipt = make_receipt("frontend-crash", "render failed", None, chrono::Utc::now());
+        assert!(matches!(receipt.kind, AutomaticReportKind::Crash));
+
+        let receipt = make_receipt("window-error", "uncaught error", None, chrono::Utc::now());
+        assert!(matches!(receipt.kind, AutomaticReportKind::Error));
+    }
+
+    #[test]
+    fn status_serializes_the_frontend_receipt_contract() {
+        let receipt = make_receipt(
+            "panic",
+            "panic: boom",
+            Some("https://github.com/ship-studio/ship-studio/issues/42".into()),
+            chrono::Utc::now(),
+        );
+        let status = AutomaticReportStatus {
+            enabled: true,
+            configured: true,
+            reason: None,
+            receipts: vec![receipt],
+        };
+
+        let serialized = serde_json::to_value(status).unwrap();
+        assert_eq!(serialized["enabled"], true);
+        assert_eq!(serialized["configured"], true);
+        assert!(serialized["reason"].is_null());
+        assert_eq!(serialized["receipts"][0]["kind"], "crash");
+        assert_eq!(
+            serialized["receipts"][0]["issueUrl"],
+            "https://github.com/ship-studio/ship-studio/issues/42"
+        );
+        assert!(serialized["receipts"][0].get("issue_url").is_none());
+    }
 
     // Issue #672: the "not a git repository" telemetry skip must survive
     // git's message localization — match the structural, untranslated parts
@@ -835,7 +1456,7 @@ mod tests {
 
     #[test]
     fn incident_gap_suppresses_rapid_followups() {
-        mark_report_sent();
+        mark_report_attempted();
         assert!(within_min_gap());
     }
 
