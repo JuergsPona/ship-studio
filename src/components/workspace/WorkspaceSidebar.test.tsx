@@ -182,6 +182,26 @@ describe('WorkspaceSidebar project activity indicator', () => {
     expect(screen.queryByText('No active projects yet.')).not.toBeInTheDocument();
   });
 
+  it('renders with no projects when projects can move between groups', async () => {
+    sessionRegistry._resetForTests();
+
+    render(
+      <WorkspaceSidebar
+        {...sidebarProps()}
+        isHomeActive
+        projects={[]}
+        currentProjectPath={null}
+        currentProjectName={null}
+        terminalTabs={[]}
+        onReorderProjects={vi.fn()}
+        onTogglePinProject={vi.fn()}
+      />,
+      { wrapper: Providers }
+    );
+
+    expect(await screen.findByRole('button', { name: /Active/ })).toBeInTheDocument();
+  });
+
   it('shows the PixelLoader in a collapsed project row when a tab is thinking', async () => {
     localStorage.setItem(EXPANDED_PROJECTS_KEY, JSON.stringify({ [PROJECT_PATH]: false }));
 
