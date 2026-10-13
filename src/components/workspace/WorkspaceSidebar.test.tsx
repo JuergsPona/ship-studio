@@ -877,6 +877,64 @@ describe('WorkspaceSidebar project activity indicator', () => {
     }
   });
 
+  it('counts the synthesized current-project row when unpinning into Active', async () => {
+    vi.useFakeTimers();
+    try {
+      sessionRegistry.destroy(PROJECT_PATH);
+      const activePaths = ['/tmp/active-alpha', '/tmp/active-beta'];
+      activePaths.forEach((path) => sessionRegistry.getOrCreate(path));
+      const onTogglePinProject = vi.fn().mockResolvedValue(true);
+      const onReorderProjects = vi.fn().mockResolvedValue(undefined);
+      render(
+        <WorkspaceSidebar
+          {...sidebarProps()}
+          projects={[pinnedRow('/tmp/moving-pin', 'moving-pin')]}
+          currentProjectPath="/tmp/external-current"
+          currentProjectName="external-current"
+          terminalTabs={[]}
+          onTogglePinProject={onTogglePinProject}
+          onReorderProjects={onReorderProjects}
+          onSelectProject={vi.fn()}
+        />,
+        { wrapper: Providers }
+      );
+
+      const items = mockPinnedRects();
+      const byId = (id: string) =>
+        items.find((item) => item.getAttribute('data-drag-sort-id') === id);
+      const pinnedItem = byId('/tmp/moving-pin');
+      const external = byId('/tmp/external-current');
+      const activeAlpha = byId(activePaths[0]);
+      const activeBeta = byId(activePaths[1]);
+      expect(external).toBeDefined();
+      const handle = within(pinnedItem!).getByRole('button', { name: 'Move moving-pin project' });
+      fireEvent(handle, pointer('pointerdown', 10, 10));
+      setItemRect(pinnedItem!, 0);
+      setItemRect(external!, 60);
+      setItemRect(activeAlpha!, 90);
+      setItemRect(activeBeta!, 120);
+
+      // Upper half of beta: insert between alpha and beta.
+      fireEvent(window, pointer('pointermove', 10, 124));
+      expect(activeBeta).toHaveAttribute('data-drag-sort-placement', 'before');
+      fireEvent(window, pointer('pointerup', 10, 124));
+      await act(async () => {
+        vi.advanceTimersByTime(250);
+        await Promise.resolve();
+      });
+
+      expect(onTogglePinProject).toHaveBeenCalledWith('/tmp/moving-pin', false);
+      expect(JSON.parse(localStorage.getItem('workspace.active-project-order') ?? '[]')).toEqual([
+        '/tmp/external-current',
+        activePaths[0],
+        '/tmp/moving-pin',
+        activePaths[1],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('pins a project when it is dropped in the empty Pinned section body', async () => {
     vi.useFakeTimers();
     try {

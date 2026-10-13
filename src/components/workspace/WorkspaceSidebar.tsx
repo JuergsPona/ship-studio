@@ -988,6 +988,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     onTogglePinProject !== undefined &&
     !isSidebarHidden &&
     !filterLower;
+  const currentExternalPath = currentExternalRow?.projectPath ?? null;
   const canSortPinned =
     onReorderProjects !== undefined &&
     !isSidebarHidden &&
@@ -1016,10 +1017,24 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
 
       const projectFamily = familyKeyOf(projectPath);
       const destinationPath = shouldPin ? projectPath : projectFamily;
-      const nextOrder = (shouldPin ? pinnedRows : activeRows)
-        .map((row) => row.projectPath)
-        .filter((path) => path !== destinationPath);
-      nextOrder.splice(Math.min(destinationIndex, nextOrder.length), 0, destinationPath);
+      // `move.to.index` counts the destination group's registered rows, which
+      // for Active includes the synthesized current-project row. Build the
+      // order from the same list so the drop lands where the slot was shown.
+      const baseOrder = shouldPin
+        ? pinnedRows.map((row) => row.projectPath)
+        : [
+            ...(currentExternalPath ? [currentExternalPath] : []),
+            ...activeRows.map((row) => row.projectPath),
+          ];
+      // Unpinning a worktree collapses it into its family row, which may
+      // already be listed; removing it first shifts later indexes down by one.
+      const existingIndex = baseOrder.indexOf(destinationPath);
+      const insertAt =
+        existingIndex >= 0 && existingIndex < destinationIndex
+          ? destinationIndex - 1
+          : destinationIndex;
+      const nextOrder = baseOrder.filter((path) => path !== destinationPath);
+      nextOrder.splice(Math.min(insertAt, nextOrder.length), 0, destinationPath);
       if (shouldPin) {
         await onReorderProjects(nextOrder);
         return;
@@ -1038,6 +1053,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     [
       activeRows,
       canMoveBetweenProjectGroups,
+      currentExternalPath,
       currentFamily,
       onReorderProjects,
       onSelectProject,
