@@ -297,7 +297,7 @@ export async function getKeepDevServersRunning(): Promise<boolean> {
   try {
     return await invoke<boolean>('get_keep_dev_servers_running');
   } catch {
-    return false;
+    return true;
   }
 }
 

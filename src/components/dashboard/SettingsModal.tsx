@@ -97,7 +97,7 @@ export function SettingsModal({
   // Projects folder is per-workspace; reflect the active one in the label.
   const { activeAccount, accounts } = useActiveAccount();
   const multipleWorkspaces = accounts.length > 1;
-  const keepDevServersRunning = useKeepDevServersRunning() ?? false;
+  const keepDevServersRunning = useKeepDevServersRunning() ?? true;
 
   const [analyticsEnabled, setLocalAnalyticsEnabled] = useState(true);
   const [dashboardHeaderVisible, setLocalDashboardHeaderVisible] = useState(true);

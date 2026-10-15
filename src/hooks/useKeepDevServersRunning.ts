@@ -44,7 +44,7 @@ export function useKeepDevServersRunning(): boolean | null {
         const value = await getKeepDevServersRunning();
         if (!disposed && sequenceAtRead === updateSequence.current) setEnabled(value);
       } catch {
-        if (!disposed) setEnabled(false);
+        if (!disposed) setEnabled(true);
       }
     })();
 

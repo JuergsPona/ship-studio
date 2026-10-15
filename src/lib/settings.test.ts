@@ -130,10 +130,10 @@ describe('background dev-server setting', () => {
     invokeMock.mockResolvedValue(undefined);
   });
 
-  it('defaults to disabled when the preference cannot be read', async () => {
+  it('defaults to enabled when the preference cannot be read', async () => {
     invokeMock.mockRejectedValueOnce(new Error('unavailable'));
 
-    await expect(getKeepDevServersRunning()).resolves.toBe(false);
+    await expect(getKeepDevServersRunning()).resolves.toBe(true);
     expect(invokeMock).toHaveBeenCalledWith('get_keep_dev_servers_running');
   });
 

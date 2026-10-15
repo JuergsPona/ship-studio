@@ -147,11 +147,12 @@ pub fn set_spotify_widget_enabled(enabled: bool) -> Result<(), CommandError> {
 }
 
 /// Get whether dev servers stay alive when their project or Preview is in the
-/// background. Defaults to `false` for installs that have not chosen a value.
+/// background. Defaults to `true` for installs that have not chosen a value,
+/// which is how dev servers behaved before the setting existed.
 #[tauri::command]
 #[tracing::instrument]
 pub fn get_keep_dev_servers_running() -> Result<bool, CommandError> {
-    Ok(read_app_state().keep_dev_servers_running.unwrap_or(false))
+    Ok(read_app_state().keep_dev_servers_running.unwrap_or(true))
 }
 
 /// Persist the background dev-server preference and notify every open window.
