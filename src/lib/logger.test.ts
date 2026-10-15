@@ -200,6 +200,14 @@ describe('Logger', () => {
       expect(arg.stack).toContain('context:');
     });
 
+    it('preserves an explicit crash source from ErrorBoundary', () => {
+      logger.logError(new Error('render failed'), {}, 'frontend-crash');
+
+      expect(mockReportError).toHaveBeenCalledWith(
+        expect.objectContaining({ source: 'frontend-crash' })
+      );
+    });
+
     it('does not forward non-error levels', () => {
       logger.warn('just a warning');
       logger.info('just info');

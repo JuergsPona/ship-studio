@@ -23,6 +23,15 @@
   --size-sidebar-section-row: 22px;
   --size-sidebar-shortcut: 21px;
 
+  /* Workspace sidebar status indicators keep one dot size and one ready-glow
+     profile across rows, regardless of whether the server row is current. */
+  --size-sidebar-status-indicator: var(--space-06);
+  --size-sidebar-server-glow-rest-inner-radius: var(--space-02);
+  --size-sidebar-server-glow-rest-outer-radius: var(--space-06);
+  --size-sidebar-server-glow-current-inner-radius: var(--space-04);
+  --size-sidebar-server-glow-current-outer-radius: var(--space-12);
+  --duration-sidebar-server-glow: var(--duration-loader-isolated);
+
   /* Spotify widget (workspace sidebar) — the playback-progress fill drawn
    * over the panel's own bottom border. */
   --spotify-widget-progress-height: var(--stroke-2);
@@ -96,7 +105,12 @@
 
   --size-color-picker-width: 320px;
   --size-color-picker-height: 510px;
+  --size-color-picker-hit-area: 40px;
+  --size-color-picker-swatch: 22px;
+  --size-color-picker-hue-pointer: var(--space-06);
   --size-color-picker-header: var(--panel-header-h);
+  --z-color-picker-contrast: calc(var(--z-dropdown) + 1);
+  --z-color-picker-controls: calc(var(--z-dropdown) + 2);
 
   --size-source-control-popover: 320px;
   --size-source-control-branch: 140px;
@@ -170,6 +184,9 @@
      idle gradient, and opaque: dimming with `opacity` let whatever sat
      behind the button show through it. */
   --button-primary-busy: var(--color-green-800);
+  --button-success-border: color-mix(in srgb, var(--accent-success) 30%, transparent);
+  --button-success-surface-hover: color-mix(in srgb, var(--accent-success) 10%, transparent);
+  --button-success-text: var(--accent-success);
   --button-surface-busy: var(--color-gray-900);
   --button-variable-surface: var(--color-purple-700);
   --button-variable-hover: var(--color-purple-600);

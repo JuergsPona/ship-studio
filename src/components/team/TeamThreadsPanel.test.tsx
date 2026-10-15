@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { TeamThreadsPanel } from './TeamThreadsPanel';
 import type { TeamThread } from '../../lib/team';
 import { clearThreadSelection } from '../../lib/teamStore';
@@ -24,7 +24,9 @@ function thread(id: string, pin: number, body: string): TeamThread {
     pin,
     resolved: false,
     resolvedBy: null,
-    messages: [{ id, actor: me, at: Date.now(), body }],
+    // Stable fixture times keep the newest-thread selection independent of
+    // how quickly the test creates each thread.
+    messages: [{ id, actor: me, at: 1_700_000_000_000 + pin, body }],
   };
 }
 
@@ -37,9 +39,11 @@ it('lists the open threads it was given', () => {
     />
   );
 
-  // Twice each: once as the row preview, once in the reader beside it.
-  expect(screen.getAllByText('Make this smaller').length).toBeGreaterThan(0);
-  expect(screen.getByText('Wrong copy')).toBeInTheDocument();
+  const threadList = within(screen.getByRole('listbox', { name: 'Comment threads' }));
+  const threadOptions = threadList.getAllByRole('option');
+  expect(threadOptions).toHaveLength(2);
+  expect(threadList.getByRole('option', { name: /Make this smaller/ })).toBeInTheDocument();
+  expect(threadList.getByRole('option', { name: /Wrong copy/ })).toBeInTheDocument();
   expect(screen.queryByText('No open comments')).not.toBeInTheDocument();
 });
 
@@ -62,14 +66,14 @@ it('offers no send button until something is ticked, then names the count', () =
   // Nothing pre-selected: the button is absent rather than present-and-disabled.
   expect(screen.queryByRole('button', { name: /Send comment/ })).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Send comment 1 to an agent' }));
-  expect(screen.getByRole('button', { name: 'Send comment to agent' })).toBeInTheDocument();
-  expect(screen.getByText('1 comment selected')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Send comment #1 to an agent' }));
+  expect(screen.getByRole('button', { name: 'Send to agent' })).toBeInTheDocument();
+  expect(screen.getByText('1 selected')).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Send comment 2 to an agent' }));
-  expect(screen.getByRole('button', { name: 'Send comments to agent' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Send comment #2 to an agent' }));
+  expect(screen.getByText('2 selected')).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole('button', { name: 'Send comments to agent' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Send to agent' }));
   expect(onSendToAgent).toHaveBeenCalledTimes(1);
   expect(onSendToAgent.mock.calls[0][0].map((sent) => sent.id)).toEqual(['t1', 't2']);
 });

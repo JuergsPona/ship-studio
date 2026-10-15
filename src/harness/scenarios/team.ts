@@ -146,7 +146,8 @@ export const teamScenarios: Scenario[] = [
     looksRightWhen:
       'The row names the trailer and says where it does not appear: not in the subject line, not in `git log --oneline`. Default on, reading as a choice rather than as a warning.',
     project: WORKSPACE_PROJECT,
-    openSelector: '[aria-label="App settings"]',
+    openSelector: '[aria-label="Settings & Help"]',
+    steps: [{ click: '.settings-menu [role="menuitem"]:first-child' }],
     requires: '[aria-label="Credit Ship Studio in commits"]',
     commands: { ...workspaceCommands, ...teamCommands },
   },

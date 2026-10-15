@@ -5,6 +5,7 @@ import { appScenarios } from './app';
 import { featureScenarios } from './features';
 import { hostingScenarios } from './hosting';
 import { hostingConnectScenarios } from './hostingConnect';
+import { issueReportScenarios } from './issueReports';
 import { layoutScenarios } from './layout';
 import { migrationScenarios } from './migration';
 import { teamScenarios } from './team';
@@ -14,6 +15,7 @@ export const scenarios: Scenario[] = [
   ...featureScenarios,
   ...hostingScenarios,
   ...hostingConnectScenarios,
+  ...issueReportScenarios,
   ...layoutScenarios,
   ...migrationScenarios,
   ...teamScenarios,

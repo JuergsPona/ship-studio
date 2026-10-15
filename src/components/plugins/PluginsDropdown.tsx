@@ -56,6 +56,7 @@ interface PluginsDropdownProps {
   onOpenPluginManager: () => void;
 }
 
+/** Lists installed and failed plugins and provides access to plugin management. */
 export function PluginsDropdown({
   plugins,
   failures = [],
@@ -72,7 +73,7 @@ export function PluginsDropdown({
   useClickOutside(menuRef, closeMenu, isOpen);
 
   return (
-    <div className="toolbar-dropdown-container" ref={menuRef}>
+    <div className="toolbar-dropdown-container workspace-plugins-control" ref={menuRef}>
       <MenuButton
         expanded={isOpen}
         onClick={(event) => {

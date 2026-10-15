@@ -19,6 +19,24 @@ describe('ModalFrame', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('renders optional header actions inside the dialog header', () => {
+    render(
+      <ModalFrame
+        isOpen
+        onClose={vi.fn()}
+        title="Issue report"
+        headerActions={<button type="button">Report on GitHub</button>}
+      >
+        <p>Report details</p>
+      </ModalFrame>
+    );
+
+    const header = document.querySelector<HTMLDivElement>('.modal-frame-header-actions');
+    const action = screen.getByRole('button', { name: 'Report on GitHub' });
+    expect(header).toContainElement(action);
+    expect(screen.getByRole('dialog', { name: 'Issue report' })).toContainElement(header);
+  });
+
   it('labels the dialog, focuses its first control, and restores the opener', () => {
     const onClose = vi.fn();
     const { rerender } = render(

@@ -34,6 +34,8 @@ import {
 } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
+import { MenuButton } from '../primitives/MenuButton';
+import { SettingsMenu } from '../SettingsMenu';
 import { PanelResizeHandle } from '../primitives/PanelResizeHandle';
 import { Spinner } from '../primitives/Spinner';
 import { BrowserDropdown } from '../preview/BrowserDropdown';
@@ -56,6 +58,7 @@ import {
 } from '../../lib/worktreeFamilies';
 import { formatRelativeTime } from '../../lib/branches';
 import type { TerminalTab } from '../../hooks/useTerminalManagement';
+import type { ProjectDevServerSnapshot } from '../../hooks/useDevServer';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { useActiveAccount } from '../../hooks/useActiveAccount';
 import { useCommands } from '../../commands/useCommands';
@@ -86,6 +89,11 @@ import {
   subscribeActiveProjectOrder,
 } from '../../lib/activeProjectOrder';
 
+export type ToggleProjectPinHandler = (
+  projectPath: string,
+  shouldPin: boolean
+) => void | boolean | Promise<void | boolean>;
+
 type SectionId = 'agents' | 'terminals' | 'worktrees' | 'commands';
 type GroupId = 'pinned' | 'projects';
 const WORKSPACE_SWITCHER_MENU_GUTTER = 8;
@@ -94,7 +102,17 @@ const WORKSPACE_SWITCHER_MENU_OFFSET = 4;
 interface SidebarItem {
   key: string;
   label: string;
-  dotState: 'idle' | 'active' | 'thinking' | 'attention' | 'muted';
+  dotState:
+    | 'idle'
+    | 'active'
+    | 'thinking'
+    | 'waiting'
+    | 'attention'
+    | 'error'
+    | 'muted'
+    | 'server-starting'
+    | 'server-ready'
+    | 'server-stopped';
   onSelect?: () => void;
   onClose?: () => void;
   isActive?: boolean;
@@ -158,7 +176,7 @@ interface Props {
   /** Rename a project folder and update the owning app state. */
   onRenameProject?: (projectPath: string, newName: string) => Promise<void>;
   /** Toggle whether a project is pinned in the sidebar. */
-  onTogglePinProject?: (projectPath: string, shouldPin: boolean) => void | Promise<void>;
+  onTogglePinProject?: ToggleProjectPinHandler;
   /**
    * Switch to a non-current project and focus a specific tab (by session id)
    * once the restore completes. The caller is responsible for persisting
@@ -199,6 +217,10 @@ interface Props {
   isProjectDevServerRunning?: (projectPath: string) => boolean;
   /** Stop the dev server for any project represented by a sidebar row. */
   onStopDevServer?: (projectPath: string) => void | Promise<void>;
+  /** Snapshot of tracked background server state, including known address. */
+  getProjectDevServerSnapshot?: (projectPath: string) => ProjectDevServerSnapshot;
+  /** Re-render project rows when background server lifecycles change. */
+  devServerLifecycleVersion?: number;
 
   // Worktrees
   /** All worktrees of the current project's repository (`git worktree list`,
@@ -253,7 +275,8 @@ function writeProjectExpanded(state: Record<string, boolean>) {
   }
 }
 
-function formatDevServerLabel(url: string | undefined): string {
+function formatDevServerLabel(url: string | undefined, knownAddress?: string | null): string {
+  if (knownAddress) return knownAddress;
   if (!url) return 'Dev server';
   try {
     return new URL(url).host;
@@ -296,10 +319,68 @@ function workspaceInitial(name: string): string {
  */
 function tabDotState(tab: { attention?: boolean; status?: TabStatus }): SidebarItem['dotState'] {
   if (tab.attention) return 'attention';
-  if (tab.status === 'crashed') return 'attention';
+  if (tab.status === 'crashed') return 'error';
   if (tab.status === 'exited') return 'muted';
   if (tab.status === 'thinking') return 'thinking';
+  if (tab.status === 'waiting') return 'waiting';
   return 'active';
+}
+
+type ProjectActivityStatus = 'closed' | 'idle' | 'working' | 'waiting' | 'error';
+
+function projectActivityStatus(
+  row: PinnedProjectRow,
+  tabs: ReadonlyArray<SessionTerminalTab> | undefined
+): ProjectActivityStatus {
+  const list = tabs ?? [];
+  if (row.status === 'error' || list.some((tab) => tab.status === 'crashed')) return 'error';
+  if (list.some((tab) => tab.status === 'waiting' || tab.attention)) return 'waiting';
+  if (list.some((tab) => tab.status === 'thinking')) return 'working';
+  if (row.status === 'inactive' || row.status === 'suspended') return 'closed';
+  return 'idle';
+}
+
+function projectActivityLabel(status: ProjectActivityStatus): string {
+  switch (status) {
+    case 'error':
+      return 'error';
+    case 'waiting':
+      return 'agent waiting for input';
+    case 'working':
+      return 'agent working';
+    case 'idle':
+      return 'open and idle';
+    case 'closed':
+      return 'closed';
+  }
+}
+
+function serverStatusLabel(status: ProjectDevServerSnapshot['status']): string | null {
+  switch (status) {
+    case 'starting':
+      return 'dev server starting';
+    case 'ready':
+      return 'dev server running';
+    case 'stopped':
+      return 'dev server stopped';
+    case 'not-running':
+      return null;
+  }
+}
+
+function serverStatusDot(
+  status: ProjectDevServerSnapshot['status']
+): SidebarItem['dotState'] | null {
+  switch (status) {
+    case 'starting':
+      return 'server-starting';
+    case 'ready':
+      return 'server-ready';
+    case 'stopped':
+      return 'server-stopped';
+    case 'not-running':
+      return null;
+  }
 }
 
 /**
@@ -317,12 +398,12 @@ function projectDotState(
   tabs: ReadonlyArray<SessionTerminalTab> | undefined
 ): SidebarItem['dotState'] {
   const list = tabs ?? [];
-  if (list.some((t) => t.attention)) return 'attention';
-  if (list.some((t) => t.status === 'crashed')) return 'attention';
-  if (row.status === 'error') return 'attention';
+  if (list.some((t) => t.status === 'crashed') || row.status === 'error') return 'error';
+  if (list.some((t) => t.attention || t.status === 'waiting')) return 'waiting';
   if (row.status === 'inactive' || row.status === 'suspended') return 'muted';
-  if (list.some((t) => t.status !== 'exited')) return 'active';
-  return 'muted';
+  if (list.some((t) => t.status === 'thinking')) return 'thinking';
+  if (list.some((t) => t.status === 'running' || t.status === 'starting')) return 'active';
+  return row.status === 'active' ? 'idle' : 'muted';
 }
 
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({
@@ -363,11 +444,15 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   devServerUrl,
   isProjectDevServerRunning,
   onStopDevServer,
+  getProjectDevServerSnapshot,
   worktrees,
   onAddWorktree,
   onSwitchAccount,
 }: Props) {
   const appSettingsModal = useModal('settings');
+  const bugReportModal = useModal('bugReport');
+  const featureRequestModal = useModal('featureRequest');
+  const changelogModal = useModal('changelog');
   // 219, not 214: the top row gained Workflows and Inbox beside Home, and at the
   // old default the last one sat hard against the resize edge.
   const [sidebarWidth, setSidebarWidth] = useState(219);
@@ -399,6 +484,15 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   const showWorkspaceSwitcher = Boolean(onSwitchAccount && activeAccount && hasMultipleWorkspaces);
   const otherWorkspaces = accounts.filter((account) => account.id !== activeAccount?.id);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
+  const currentServerSnapshot: ProjectDevServerSnapshot = currentProjectPath
+    ? (getProjectDevServerSnapshot?.(currentProjectPath) ?? {
+        status: devServerRunning ? 'ready' : 'not-running',
+        address: null,
+        instanceId: null,
+      })
+    : { status: 'not-running', address: null, instanceId: null };
+  const currentServerStatus = currentServerSnapshot.status;
+  const currentServerAddress = currentServerSnapshot.address;
 
   const handleOpenProjectSettings = useCallback(
     async (row: Pick<PinnedProjectRow, 'projectPath' | 'fallbackName'>) => {
@@ -780,10 +874,22 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     if (hasDevServer || isRestartingDevServer) {
       commands.push({
         key: 'dev-server',
-        label: formatDevServerLabel(devServerUrl),
-        dotState: isRestartingDevServer ? 'attention' : devServerRunning ? 'active' : 'idle',
+        label: formatDevServerLabel(devServerUrl, currentServerAddress),
+        dotState:
+          isRestartingDevServer || currentServerStatus === 'starting'
+            ? 'server-starting'
+            : devServerRunning
+              ? 'server-ready'
+              : currentServerStatus === 'stopped'
+                ? 'server-stopped'
+                : 'idle',
         onSelect: onOpenDevServerLogs,
-        meta: isRestartingDevServer ? 'restarting' : undefined,
+        meta:
+          isRestartingDevServer || currentServerStatus === 'starting'
+            ? 'starting'
+            : currentServerStatus === 'stopped'
+              ? 'stopped'
+              : undefined,
         onAction: onRestartDevServer,
         actionIcon: <ResetIcon size={11} />,
         actionLabel: 'Restart dev server',
@@ -817,11 +923,14 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     onOpenDevServerLogs,
     onRestartDevServer,
     devServerUrl,
+    currentServerStatus,
+    currentServerAddress,
   ]);
 
   // Worktree rows for the current project. Clicking a non-current worktree
   // performs the same in-place project switch as any other sidebar row — the
-  // previous worktree's session (PTYs + dev server) stays hot in "Active".
+  // previous worktree's terminal session stays active; dev-server retention
+  // follows the Experimental setting.
   const worktreeItems = useMemo<SidebarItem[]>(() => {
     void registryVersion;
     const list = worktrees ?? [];
@@ -978,22 +1087,92 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   const visibleActive = [...(currentExternalRow ? [currentExternalRow] : []), ...activeRows].filter(
     (p) => matchesFilter(p.fallbackName)
   );
+  const canMoveBetweenProjectGroups =
+    onReorderProjects !== undefined &&
+    onTogglePinProject !== undefined &&
+    !isSidebarHidden &&
+    !filterLower;
+  const currentExternalPath = currentExternalRow?.projectPath ?? null;
   const canSortPinned =
-    onReorderProjects !== undefined && !isSidebarHidden && !filterLower && pinnedRows.length > 1;
+    onReorderProjects !== undefined &&
+    !isSidebarHidden &&
+    !filterLower &&
+    (pinnedRows.length > 1 || (canMoveBetweenProjectGroups && pinnedRows.length > 0));
 
-  const handlePinnedMove = useCallback(
+  const handleProjectMove = useCallback(
     async (move: DragSortMove) => {
-      if (!onReorderProjects || !move.projectedOrder) return;
-      await onReorderProjects(move.projectedOrder.map(String));
+      if (!move.projectedOrder) return;
+      const projectPath = String(move.activeId);
+      const destinationIndex = Math.max(0, move.to.index);
+
+      if (move.from.group === move.to.group) {
+        if (move.from.group === 'pinned') {
+          await onReorderProjects?.(move.projectedOrder.map(String));
+        } else {
+          setActiveProjectOrder(move.projectedOrder.map(String));
+        }
+        return;
+      }
+
+      if (!canMoveBetweenProjectGroups || !onTogglePinProject || !onReorderProjects) return;
+      const shouldPin = move.to.group === 'pinned';
+      const succeeded = await onTogglePinProject(projectPath, shouldPin);
+      if (succeeded === false) return;
+
+      const projectFamily = familyKeyOf(projectPath);
+      const destinationPath = shouldPin ? projectPath : projectFamily;
+      // `move.to.index` counts the destination group's registered rows, which
+      // for Active includes the synthesized current-project row. Build the
+      // order from the same list so the drop lands where the slot was shown.
+      const baseOrder = shouldPin
+        ? pinnedRows.map((row) => row.projectPath)
+        : [
+            ...(currentExternalPath ? [currentExternalPath] : []),
+            ...activeRows.map((row) => row.projectPath),
+          ];
+      // Unpinning a worktree collapses it into its family row, which may
+      // already be listed; removing it first shifts later indexes down by one.
+      const existingIndex = baseOrder.indexOf(destinationPath);
+      const insertAt =
+        existingIndex >= 0 && existingIndex < destinationIndex
+          ? destinationIndex - 1
+          : destinationIndex;
+      const nextOrder = baseOrder.filter((path) => path !== destinationPath);
+      nextOrder.splice(Math.min(insertAt, nextOrder.length), 0, destinationPath);
+      if (shouldPin) {
+        await onReorderProjects(nextOrder);
+        return;
+      }
+      setActiveProjectOrder(nextOrder);
+
+      // Active rows are backed by live sessions. Open a cold saved project
+      // after unpinning so the destination row exists and stays visible.
+      const hasSessionInFamily = sessionRegistry
+        .snapshotAll()
+        .some((session) => familyKeyOf(session.projectPath) === projectFamily);
+      if (!hasSessionInFamily && currentFamily !== projectFamily) {
+        onSelectProject(projectPath);
+      }
     },
-    [onReorderProjects]
+    [
+      activeRows,
+      canMoveBetweenProjectGroups,
+      currentExternalPath,
+      currentFamily,
+      onReorderProjects,
+      onSelectProject,
+      onTogglePinProject,
+      pinnedRows,
+    ]
   );
   const canSortActive =
-    !isSidebarHidden && !filterLower && currentExternalRow === null && activeRows.length > 1;
-  const handleActiveMove = useCallback((move: DragSortMove) => {
-    if (!move.projectedOrder) return;
-    setActiveProjectOrder(move.projectedOrder.map(String));
-  }, []);
+    !isSidebarHidden &&
+    !filterLower &&
+    ((currentExternalRow === null && activeRows.length > 1) ||
+      (canMoveBetweenProjectGroups && visibleActive.length > 0));
+  // The cross-group drop targets render whenever moving between groups is
+  // possible — even with both groups empty — and they need a scope to mount in.
+  const hasSortableProjectGroups = canSortPinned || canSortActive || canMoveBetweenProjectGroups;
 
   // Force-open the group containing the current project. We honor the
   // user's manual collapsed state for the OTHER group.
@@ -1054,9 +1233,17 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
       : unpinProject
         ? (_shouldPin: boolean) => unpinProject()
         : undefined;
-    const hasRunningDevServer = isProjectDevServerRunning
-      ? isProjectDevServerRunning(row.projectPath)
-      : isCurrent && devServerRunning;
+    const serverSnapshot =
+      getProjectDevServerSnapshot?.(row.projectPath) ??
+      ({
+        status:
+          isProjectDevServerRunning?.(row.projectPath) || (isCurrent && devServerRunning)
+            ? 'ready'
+            : 'not-running',
+        address: null,
+        instanceId: null,
+      } satisfies ProjectDevServerSnapshot);
+    const hasRunningDevServer = serverSnapshot.status === 'ready';
     const stopDevServer =
       onStopDevServer && hasRunningDevServer
         ? () => {
@@ -1100,6 +1287,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         compact={!!isSidebarHidden}
         isExpanded={expanded}
         isWorking={workingProjectFamilies.has(familyRootOf(row.projectPath))}
+        serverSnapshot={serverSnapshot}
         shortcutNumber={shortcutNumberFor(row)}
         onToggleExpand={() => toggleProjectExpanded(row.projectPath)}
         onSelectProject={onSelectProject}
@@ -1170,7 +1358,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                 snapshot={sessionRegistry.snapshot(row.projectPath)}
                 worktreeItems={familyWorktreeItems}
                 filterLower={filterLower}
-                hasLiveDevServer={isProjectDevServerRunning?.(row.projectPath) ?? false}
+                serverSnapshot={serverSnapshot}
                 onSelectTab={(sessionId) => {
                   if (onSelectProjectTab) {
                     onSelectProjectTab(row.projectPath, sessionId);
@@ -1324,6 +1512,153 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
       : `${sidebarWidth}px`,
   } as CSSProperties;
 
+  const pinnedGroupEmpty = visiblePinned.length === 0 && !filterLower;
+  const activeGroupEmpty = visibleActive.length === 0 && !filterLower;
+  const renderGroupDropTarget = (
+    group: 'pinned' | 'active',
+    id: string,
+    index: number,
+    children: ReactNode
+  ) =>
+    canMoveBetweenProjectGroups ? (
+      <DragSortItem
+        id={id}
+        group={group}
+        index={index}
+        label={`${group === 'pinned' ? 'Pinned' : 'Active'} projects`}
+        targetOnly
+        showTargetIndicator
+        className="sidebar-project-group-drop-target"
+      >
+        {children}
+      </DragSortItem>
+    ) : (
+      children
+    );
+  const renderProjectGroup = (
+    group: 'pinned' | 'active',
+    count: number,
+    expanded: boolean,
+    empty: boolean,
+    rows: ReactNode
+  ) => {
+    const isPinned = group === 'pinned';
+    const label = isPinned ? 'Pinned' : 'Active';
+    const headerState = expanded ? 'expanded' : !isPinned && empty ? 'empty' : 'collapsed';
+    const header = (
+      <SidebarGroupHeader
+        label={label}
+        count={count}
+        collapsed={!expanded}
+        onToggle={() => toggleGroup(isPinned ? 'pinned' : 'projects')}
+        emptyHint={isPinned ? 'Pin a project from the Projects list below' : undefined}
+      />
+    );
+    return (
+      <>
+        {isSidebarHidden ? (
+          <CompactSidebarGroupMarker label={label} />
+        ) : (
+          renderGroupDropTarget(
+            group,
+            `sidebar-${headerState}-${group}-header-drop-target`,
+            -1,
+            header
+          )
+        )}
+        {(isSidebarHidden || expanded) &&
+          (empty
+            ? !isSidebarHidden &&
+              renderGroupDropTarget(
+                group,
+                `sidebar-empty-${group}-drop-target`,
+                0,
+                <div className="sidebar-group-empty">
+                  {isPinned ? 'Nothing pinned yet' : 'No active projects yet.'}
+                </div>
+              )
+            : rows)}
+      </>
+    );
+  };
+  const projectActions = (
+    <div className="workspace-sidebar-active-actions">
+      <Button
+        variant="ghost"
+        width="fill"
+        className="workspace-sidebar-add-project"
+        onClick={onOpenProjectPicker}
+        title="Open a project"
+      >
+        <AddIcon size={16} />
+        <span>Open project</span>
+      </Button>
+    </div>
+  );
+  const activeProjectSection = (
+    <>
+      {renderProjectGroup(
+        'active',
+        activeRows.length + (currentExternalRow ? 1 : 0),
+        activeOpen,
+        activeGroupEmpty,
+        visibleActive.map((row, index) => renderProjectRow(row, canSortActive, index, 'active'))
+      )}
+
+      {canMoveBetweenProjectGroups ? (
+        // Inserting into Pinned opens space before this section in the shared list flow.
+        <DragSortItem
+          id="sidebar-active-project-actions-anchor"
+          group="active"
+          index={visibleActive.length}
+          label="Open project action"
+          targetOnly
+          targetDisabled
+          crossGroupPlaceholderFollower
+          className="workspace-sidebar-active-actions-anchor"
+        >
+          {projectActions}
+        </DragSortItem>
+      ) : (
+        projectActions
+      )}
+    </>
+  );
+  const projectGroups = (
+    <>
+      {renderProjectGroup(
+        'pinned',
+        pinnedRows.length,
+        pinnedOpen,
+        pinnedGroupEmpty,
+        visiblePinned.map((row) =>
+          renderProjectRow(
+            row,
+            canSortPinned,
+            pinnedRows.findIndex((candidate) => candidate.projectPath === row.projectPath)
+          )
+        )
+      )}
+
+      {canMoveBetweenProjectGroups ? (
+        <DragSortItem
+          id="sidebar-active-section-placeholder-follower"
+          group="pinned"
+          index={pinnedRows.length}
+          label="Active projects section"
+          targetOnly
+          targetDisabled
+          crossGroupPlaceholderFollower
+          className="workspace-sidebar-active-section-anchor"
+        >
+          {activeProjectSection}
+        </DragSortItem>
+      ) : (
+        activeProjectSection
+      )}
+    </>
+  );
+
   return (
     <>
       <aside
@@ -1405,90 +1740,35 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         <SpotifyWidget isSidebarHidden={isSidebarHidden} />
 
         <div className="workspace-sidebar-scroll">
-          {isSidebarHidden ? (
-            <CompactSidebarGroupMarker label="Pinned" />
-          ) : (
-            <SidebarGroupHeader
-              label="Pinned"
-              count={pinnedRows.length}
-              collapsed={!pinnedOpen}
-              onToggle={() => toggleGroup('pinned')}
-              emptyHint="Pin a project from the Projects list below"
-            />
-          )}
-          {(isSidebarHidden || pinnedOpen) &&
-            (visiblePinned.length === 0 && !filterLower ? (
-              !isSidebarHidden && <div className="sidebar-group-empty">Nothing pinned yet</div>
-            ) : canSortPinned ? (
-              <DragSortScope
-                axis="vertical"
-                items={pinnedRows.map((row) => row.projectPath)}
-                label="Pinned projects"
-                onMove={handlePinnedMove}
-              >
-                {visiblePinned.map((row) =>
-                  renderProjectRow(
-                    row,
-                    true,
-                    pinnedRows.findIndex((candidate) => candidate.projectPath === row.projectPath)
-                  )
-                )}
-              </DragSortScope>
-            ) : (
-              visiblePinned.map((row) => renderProjectRow(row))
-            ))}
-
-          {isSidebarHidden ? (
-            <CompactSidebarGroupMarker label="Active" />
-          ) : (
-            <SidebarGroupHeader
-              label="Active"
-              count={activeRows.length + (currentExternalRow ? 1 : 0)}
-              collapsed={!activeOpen}
-              onToggle={() => toggleGroup('projects')}
-            />
-          )}
-          {(isSidebarHidden || activeOpen) &&
-            (visibleActive.length === 0 && !filterLower ? (
-              !isSidebarHidden && <div className="sidebar-group-empty">No active projects yet.</div>
-            ) : canSortActive ? (
-              <DragSortScope
-                axis="vertical"
-                items={activeRows.map((row) => row.projectPath)}
-                label="Active projects"
-                onMove={handleActiveMove}
-              >
-                {visibleActive.map((row) =>
-                  renderProjectRow(
-                    row,
-                    true,
-                    activeRows.findIndex((candidate) => candidate.projectPath === row.projectPath),
-                    'active'
-                  )
-                )}
-              </DragSortScope>
-            ) : (
-              visibleActive.map((row) => renderProjectRow(row))
-            ))}
-
-          <div className="workspace-sidebar-active-actions">
-            <Button
-              variant="ghost"
-              width="fill"
-              className="workspace-sidebar-add-project"
-              onClick={onOpenProjectPicker}
-              title="Open a project"
+          {hasSortableProjectGroups ? (
+            <DragSortScope
+              axis="vertical"
+              allowCrossGroup={canMoveBetweenProjectGroups}
+              placeholderClassName="workspace-sidebar-project-drop-placeholder"
+              placementForTarget={(target, point) => {
+                if (target.targetOnly) {
+                  return String(target.id).includes('header-drop-target') ? 'after' : 'before';
+                }
+                return point.y < target.rect.top + target.rect.height / 2 ? 'before' : 'after';
+              }}
+              items={[
+                ...pinnedRows.map((row) => row.projectPath),
+                ...visibleActive.map((row) => row.projectPath),
+              ]}
+              label="Workspace projects"
+              onMove={handleProjectMove}
             >
-              <AddIcon size={16} />
-              <span>Open project</span>
-            </Button>
-          </div>
+              {projectGroups}
+            </DragSortScope>
+          ) : (
+            projectGroups
+          )}
         </div>
 
         <div className="workspace-sidebar-footer">
           <UpdateBanner />
           <div
-            className={`workspace-sidebar-footer-actions${
+            className={`workspace-sidebar-footer-actions has-settings-drawer${
               showWorkspaceSwitcher ? ' has-workspace-switcher' : ''
             }`}
           >
@@ -1585,13 +1865,55 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               aria-label="Support"
               data-education-id="support-button"
             />
-            <IconButton
-              variant="default"
-              className="workspace-sidebar-settings"
-              icon={<SettingsIcon size={12} />}
-              onClick={appSettingsModal.open}
-              title="App settings"
-              aria-label="App settings"
+            <SettingsMenu
+              className="workspace-sidebar-settings-menu"
+              onOpenSettings={appSettingsModal.open}
+              onOpenBugReports={bugReportModal.open}
+              onOpenFeatureRequest={featureRequestModal.open}
+              onOpenChangelog={changelogModal.open}
+              presentation="drawer"
+              onOpenChange={(open) => {
+                if (open) {
+                  closeWorkspaceSwitcher();
+                  if (isSidebarHidden) onToggleSidebar?.();
+                }
+              }}
+              renderTrigger={(props) => {
+                const settingsMenuOpen = props['aria-expanded'];
+                if (!settingsMenuOpen) {
+                  return (
+                    <MenuButton
+                      variant="default"
+                      className="button--icon-only workspace-sidebar-settings"
+                      leftIcon={<SettingsIcon size={12} />}
+                      title="Settings & Help"
+                      aria-label="Settings & Help"
+                      data-settings-menu-trigger="workspace"
+                      expanded={settingsMenuOpen}
+                      {...props}
+                    />
+                  );
+                }
+
+                return (
+                  <MenuButton
+                    variant={settingsMenuOpen ? 'ghost' : 'default'}
+                    width="fill"
+                    className="workspace-sidebar-settings-summary workspace-sidebar-ws-switch"
+                    leftIcon={<SettingsIcon size={12} />}
+                    title="Settings & Help"
+                    aria-label="Settings & Help"
+                    data-settings-menu-trigger="workspace"
+                    expanded={settingsMenuOpen}
+                    {...props}
+                  >
+                    <span className="workspace-switcher-name">Settings &amp; Help</span>
+                    <span className="workspace-switcher-chevron is-open" aria-hidden="true">
+                      <ChevronIcon size={12} />
+                    </span>
+                  </MenuButton>
+                );
+              }}
             />
           </div>
         </div>
@@ -1682,8 +2004,8 @@ function SidebarGroupHeader({
 
 /**
  * Read-only view of another project's agent/terminal lists, pulled from
- * the session registry snapshot. Under Slice 4 these tabs' PTYs are STILL
- * RUNNING in the background (we keep every active session hot), so dots
+ * the session registry snapshot. These tabs' PTYs are STILL RUNNING in the
+ * background, so dots
  * render active. Clicking a tab switches to that project and focuses the
  * tab — the live Terminal just unhides, no reconnect required.
  */
@@ -1691,15 +2013,14 @@ function InactiveProjectSections({
   snapshot,
   worktreeItems,
   filterLower,
-  hasLiveDevServer,
+  serverSnapshot,
   onSelectTab,
 }: {
   snapshot: SessionSnapshot | undefined;
   /** Hot worktree sessions in this project's family (empty when none). */
   worktreeItems?: SidebarItem[];
   filterLower: string;
-  /** True if a dev server is currently tracked for this project path. */
-  hasLiveDevServer: boolean;
+  serverSnapshot: ProjectDevServerSnapshot;
   onSelectTab: (sessionId: string) => void;
 }) {
   const tabs: ReadonlyArray<SessionTerminalTab> = snapshot?.terminalTabs ?? [];
@@ -1725,12 +2046,14 @@ function InactiveProjectSections({
     else agents.push(item);
   }
 
-  const commands: SidebarItem[] = hasLiveDevServer
+  const serverLabel = serverStatusLabel(serverSnapshot.status);
+  const commands: SidebarItem[] = serverLabel
     ? [
         {
           key: 'dev-server',
-          label: 'Dev server',
-          dotState: 'active',
+          label: serverSnapshot.address ?? 'Dev server',
+          dotState: serverStatusDot(serverSnapshot.status) ?? 'idle',
+          meta: serverSnapshot.status === 'ready' ? 'running' : serverSnapshot.status,
         },
       ]
     : [];
@@ -1804,6 +2127,7 @@ function ProjectGroup({
   compact,
   isExpanded,
   isWorking,
+  serverSnapshot,
   shortcutNumber,
   onToggleExpand,
   onSelectProject,
@@ -1823,6 +2147,7 @@ function ProjectGroup({
   compact: boolean;
   isExpanded: boolean;
   isWorking: boolean;
+  serverSnapshot: ProjectDevServerSnapshot;
   /** Cmd+N shortcut badge (1..9). Null for rows beyond the shortcut range. */
   shortcutNumber: number | null;
   onToggleExpand: () => void;
@@ -1852,17 +2177,59 @@ function ProjectGroup({
   // therefore re-read on every relevant change.
   const snap = sessionRegistry.snapshot(row.projectPath);
   const baseDot = projectDotState(row, snap?.terminalTabs);
-  // Family rows can be live purely through a worktree session (the root path
-  // itself has no tabs) — the aggregated row status is authoritative then.
-  const dot = baseDot === 'muted' && row.status === 'active' ? 'active' : baseDot;
+  const snapshotActivity = projectActivityStatus(row, snap?.terminalTabs);
+  const activityStatus: ProjectActivityStatus =
+    snapshotActivity === 'idle' && isWorking ? 'working' : snapshotActivity;
+  const dot =
+    activityStatus === 'error'
+      ? 'error'
+      : activityStatus === 'waiting'
+        ? 'waiting'
+        : activityStatus === 'working'
+          ? !isExpanded && baseDot === 'thinking'
+            ? 'thinking'
+            : 'active'
+          : activityStatus === 'idle'
+            ? 'idle'
+            : 'muted';
+  const serverDot = serverStatusDot(serverSnapshot.status);
+  const isExpandedBackgroundServerReady =
+    isExpanded && !isCurrent && serverSnapshot.status === 'ready';
+  const projectDot =
+    isExpandedBackgroundServerReady && (activityStatus === 'idle' || activityStatus === 'closed')
+      ? 'active'
+      : dot;
+  // A ready server is the most useful signal on an otherwise idle project
+  // row. Avoid showing the neutral agent dot beside it; attention and active
+  // work still keep their own indicator so both live states remain visible.
+  const showAgentStatus =
+    isExpandedBackgroundServerReady ||
+    serverSnapshot.status !== 'ready' ||
+    (activityStatus !== 'idle' && activityStatus !== 'closed');
+  // Expanded background projects show their server status in the Dev Server
+  // child row. Keep the parent indicator for collapsed rows and the current
+  // project, whose selected-row treatment is intentionally different.
+  const showProjectServerDot = !isExpanded || isCurrent;
+  const accessibleStatus = [
+    projectActivityLabel(activityStatus),
+    serverStatusLabel(serverSnapshot.status),
+    serverSnapshot.address,
+  ]
+    .filter(Boolean)
+    .join('; ');
   const memoryLabel =
     row.memoryBytes > 0 ? `${Math.round(row.memoryBytes / (1024 * 1024))}MB` : null;
-  const showWorkingIndicator = !isExpanded && isWorking;
+  const showWorkingIndicator = !isExpanded && activityStatus === 'working';
   // A pin whose session has been closed. The row deliberately survives — the
   // pin is the user's standing choice — but it must not keep looking like a
   // live one, or closing it reads as "nothing happened" and the next click
   // goes looking for something else to press.
-  const isParked = isPinned && row.status === 'inactive';
+  const isParked =
+    isPinned &&
+    row.status === 'inactive' &&
+    serverSnapshot.status !== 'ready' &&
+    serverSnapshot.status !== 'starting' &&
+    serverSnapshot.status !== 'stopped';
 
   const projectContent = (
     <>
@@ -1874,7 +2241,7 @@ function ProjectGroup({
             role="button"
             tabIndex={0}
             aria-current={isCurrent ? 'true' : undefined}
-            aria-label={row.fallbackName}
+            aria-label={`${row.fallbackName}; ${accessibleStatus}${isCurrent ? '; current project' : ''}`}
             onClick={() => {
               if (!isCurrent) onSelectProject(row.projectPath);
             }}
@@ -1942,8 +2309,11 @@ function ProjectGroup({
                     size="sm"
                     label={`Working on ${row.fallbackName}`}
                   />
-                ) : (
-                  <span className={`sidebar-row-dot dot-${dot}`} aria-hidden="true" />
+                ) : showAgentStatus ? (
+                  <span className={`sidebar-row-dot dot-${projectDot}`} aria-hidden="true" />
+                ) : null}
+                {showProjectServerDot && serverDot && (
+                  <span className={`sidebar-row-dot dot-${serverDot}`} aria-hidden="true" />
                 )}
               </span>
             )}
@@ -1986,9 +2356,11 @@ function ProjectGroup({
             initials={initials}
             shortcutNumber={shortcutNumber}
             isCurrent={isCurrent}
+            isExpanded={isExpanded}
             dot={dot}
           />
         }
+        collapseWhenDragging
         className={`sidebar-project ${isCurrent ? 'is-current' : ''}`}
       >
         {projectContent}
@@ -2004,12 +2376,14 @@ function ProjectRowDragOverlay({
   initials,
   shortcutNumber,
   isCurrent,
+  isExpanded,
   dot,
 }: {
   row: PinnedProjectRow;
   initials: string;
   shortcutNumber: number | null;
   isCurrent: boolean;
+  isExpanded: boolean;
   dot: SidebarItem['dotState'];
 }) {
   return (
@@ -2022,6 +2396,21 @@ function ProjectRowDragOverlay({
       <span className="sidebar-project-drag-handle sidebar-project-drag-handle--overlay">
         <DragHandleIcon size={14} />
       </span>
+      <IconButton
+        className="sidebar-project-control sidebar-project-chevron"
+        variant="ghost"
+        size="compact"
+        icon={
+          <ChevronIcon
+            size={10}
+            className={isExpanded ? 'chevron-expanded' : 'chevron-collapsed'}
+          />
+        }
+        aria-expanded={isExpanded}
+        aria-label={isExpanded ? 'Collapse project' : 'Expand project'}
+        aria-hidden="true"
+        tabIndex={-1}
+      />
       <span className={`sidebar-project-initials ${shortcutNumber !== null ? 'is-shortcut' : ''}`}>
         {shortcutNumber !== null ? kbd('mod', String(shortcutNumber)) : initials}
       </span>
@@ -2295,7 +2684,7 @@ function SidebarRow({ item }: { item: SidebarItem }) {
     setIsEditing(false);
   };
 
-  const isAttention = item.dotState === 'attention';
+  const isAttention = item.dotState === 'attention' || item.dotState === 'waiting';
   return (
     <li
       className={[

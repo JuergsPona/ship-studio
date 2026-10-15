@@ -5,6 +5,7 @@ export type ButtonVariant =
   | 'primary'
   | 'secondary'
   | 'danger'
+  | 'success'
   | 'ghost'
   | 'warning'
   | 'variable';
@@ -12,6 +13,7 @@ export type ButtonVariant =
 export type ButtonSize = 'default' | 'compact' | 'medium' | 'large';
 export type ButtonWidth = 'hug' | 'fill';
 
+/** Builds the shared appearance classes used by every semantic button primitive. */
 export function buttonClassNames({
   variant = 'default',
   size = 'default',
@@ -47,8 +49,9 @@ export function buttonClassNames({
  *
  * - `variant` — visual emphasis. `default` = neutral Figma solid,
  *   `secondary` = neutral outline, `primary` = green CTA, `danger` =
- *   red-tinted destructive action, `ghost` = borderless low-emphasis action,
- *   `warning` = amber warning action, and `variable` = purple variable action.
+ *   red-tinted destructive action, `success` = green-tinted positive action,
+ *   `ghost` = borderless low-emphasis action, `warning` = amber warning action,
+ *   and `variable` = purple variable action.
  * - `size` — `default` (30px), `compact` for dense rows and toolbars, or
  *   `large` for prominent actions.
  * - `width` — `hug` (default) sizes to content; `fill` stretches to the

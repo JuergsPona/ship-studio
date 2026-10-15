@@ -447,8 +447,11 @@ pub fn run() {
 
                 // Stop preview proxy and static server for this window (the
                 // agent bridge is global — it lives for the app's lifetime)
-                proxy::stop_preview_proxy(&label);
-                static_server::stop_static_server(&label);
+                let server_window_label = label.clone();
+                tauri::async_runtime::spawn(async move {
+                    proxy::stop_preview_proxies_for_window(&server_window_label).await;
+                    static_server::stop_static_servers_for_window(&server_window_label).await;
+                });
 
                 // Kill PTY processes (dev server, etc.) owned by this window
                 let killed = commands::pty::kill_window_pty_sync(&label);
@@ -481,8 +484,10 @@ pub fn run() {
                     );
                     cleanup_agent_processes();
                     commands::setup::cleanup_auth_processes_sync();
-                    proxy::stop_all_proxies();
-                    static_server::stop_all_static_servers();
+                    tauri::async_runtime::spawn(async move {
+                        proxy::stop_all_proxies().await;
+                        static_server::stop_all_static_servers().await;
+                    });
                     // Mobile previews are torn down per-window above
                     // (teardown_mobile_previews_for_window_sync), so there's no
                     // global sim shutdown to do here.
@@ -678,6 +683,8 @@ pub fn run() {
             commands::settings::set_slack_cta_hidden,
             commands::settings::get_spotify_widget_enabled,
             commands::settings::set_spotify_widget_enabled,
+            commands::settings::get_keep_dev_servers_running,
+            commands::settings::set_keep_dev_servers_running,
             commands::spotify::get_spotify_state,
             commands::spotify::spotify_control,
             commands::settings::get_dashboard_header_hidden,
@@ -785,6 +792,8 @@ pub fn run() {
             // Pull requests
             commands::pull_requests::list_pull_requests,
             commands::pull_requests::create_pull_request,
+            commands::issue_reports::get_issue_report_context,
+            commands::issue_reports::submit_github_issue,
             commands::pull_requests::merge_pull_request,
             commands::pull_requests::checkout_pull_request,
             commands::pull_requests::close_pull_request,
@@ -910,6 +919,7 @@ pub fn run() {
             logging::log_frontend_event,
             // Error reporting (admin agent)
             error_reporting::report_frontend_error,
+            error_reporting::get_automatic_report_status,
             // Snapshots / Undo-Redo
             commands::snapshots::snapshot_start_watching,
             commands::snapshots::snapshot_stop_watching,

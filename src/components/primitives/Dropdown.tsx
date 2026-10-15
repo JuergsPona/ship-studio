@@ -75,6 +75,8 @@ interface DropdownProps {
   };
   /** Open on pointer hover while retaining click and keyboard access. */
   openOnHover?: boolean;
+  /** Extra class on the trigger/menu wrapper. */
+  className?: string;
 }
 
 const DropdownContext = createContext<{ close: () => void } | null>(null);
@@ -106,6 +108,7 @@ export function Dropdown({
   open: controlledOpen,
   search,
   openOnHover = false,
+  className,
 }: DropdownProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = controlledOpen ?? internalOpen;
@@ -423,7 +426,9 @@ export function Dropdown({
 
   return (
     <div
-      className="ss-dropdown"
+      className={['ss-dropdown', className, className && isOpen ? 'is-open' : null]
+        .filter(Boolean)
+        .join(' ')}
       ref={containerRef}
       onMouseEnter={openOnHover ? openFromHover : undefined}
       onMouseLeave={openOnHover ? scheduleHoverClose : undefined}

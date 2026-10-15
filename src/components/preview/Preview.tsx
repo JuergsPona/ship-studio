@@ -72,12 +72,12 @@ import { useElementTree } from '../../hooks/useElementTree';
 import { useElementBreadcrumbVisibility } from '../../hooks/useElementBreadcrumbVisibility';
 import { PreviewLocaleSwitcher, type PreviewLocaleConfig } from './PreviewLocaleSwitcher';
 import {
-  CompactIcon,
+  ContractDiagonalIcon,
   ChevronIcon,
   DesktopIcon,
   EditFieldIcon,
   EditIcon,
-  ExpandIcon,
+  ExpandDiagonalIcon,
   FullBreakpointIcon,
   GridIcon,
   LaptopIcon,
@@ -196,6 +196,10 @@ interface PreviewProps {
   /** Whether the preview may probe its port. The Preview shell stays mounted
    *  while project setup is still reserving the real port. */
   previewConnectionEnabled?: boolean;
+  /** True when this project already has a tracked server from an earlier view. */
+  serverAlreadyRunning?: boolean;
+  /** Unique identity for the tracked server process, used to scope warm readiness. */
+  serverInstanceId?: number | null;
   /** Detected project type; gates the visual editor to Next.js for v1. */
   projectType?: ProjectType;
   /** Callback to send prompt to Claude terminal */
@@ -324,6 +328,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     isDevServerRestarting = false,
     isStaticProject = false,
     previewConnectionEnabled = true,
+    serverAlreadyRunning = false,
+    serverInstanceId = null,
     projectType,
     onSendToClaude,
     previewPlugins,
@@ -375,6 +381,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     isDevServerRestarting,
     isStaticProject,
     enabled: previewConnectionEnabled,
+    serverAlreadyRunning,
+    serverInstanceId,
     onServerReady,
     onPageChange,
     onSendToClaude,
@@ -1648,7 +1656,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen preview'}
           aria-pressed={isFullscreen}
         >
-          {isFullscreen ? <CompactIcon size={14} /> : <ExpandIcon size={14} />}
+          {isFullscreen ? <ContractDiagonalIcon size={14} /> : <ExpandDiagonalIcon size={14} />}
         </button>
 
         <div className="preview-breakpoints" data-education-id="breakpoints">
@@ -2146,6 +2154,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             selectorSuggestions={cssEditor.classSuggestions.map((c) => `.${c}`)}
             existingSelectors={cssEditor.existingSelectors}
             variables={cssEditor.variableSuggestions}
+            colorVariables={cssVariables.variables}
+            projectPath={projectPath}
             animations={cssEditor.animationSuggestions}
             settings={elementSettings}
             animationsState={cssAnimations}
@@ -2175,6 +2185,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           >
             <VariablesPanel
               variablesState={cssVariables}
+              projectPath={projectPath}
               pinned={variablesPanelDocked}
               onTogglePin={onToggleVariablesPanelPin}
               onClose={onCloseVariablesPanel}

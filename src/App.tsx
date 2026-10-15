@@ -77,6 +77,8 @@ import {
   unreadCount,
 } from './lib/workflowsStore';
 import { useCompactWorkspaceToolbar } from './hooks/useCompactWorkspaceToolbar';
+import { useKeepDevServersRunning } from './hooks/useKeepDevServersRunning';
+import { useDevServerRetention } from './hooks/useDevServerRetention';
 import { installAppLifecycleTracking, quitAppWithTracking } from './lib/appLifecycle';
 import type { AppView } from './lib/types';
 import './styles/index.css';
@@ -129,6 +131,7 @@ function App({ initialProjectPath }: AppProps) {
 
 function AppContents({ initialProjectPath }: AppProps) {
   const [view, setView] = useState<AppView>('loading');
+  const keepDevServersRunning = useKeepDevServersRunning();
   const { openAccountSelect, accountSelectProps } = useAccountSelectNavigation(view, setView);
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
@@ -238,7 +241,6 @@ function AppContents({ initialProjectPath }: AppProps) {
 
   // Dev server and health check management
   const {
-    devServerRef,
     healthPanelRef,
     devServerPort,
     knownDevServerPort,
@@ -254,9 +256,13 @@ function AppContents({ initialProjectPath }: AppProps) {
     handleHealthOutput,
     handleRestartDevServer: restartDevServer,
     startServerForProject,
+    serverLifecycleVersion,
     stopServer,
+    stopAllServersExcept,
     stopAllServers,
     isServerRunning,
+    isServerStarting,
+    getProjectDevServerSnapshot,
     saveCustomDevCommand,
     needsInstall,
     devServerUnexpectedExit,
@@ -470,6 +476,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     setDevServerPort,
     startServerForProject,
     isServerRunning,
+    isServerStarting,
     restartDevServer,
     clearNeedsInstall,
     pasteToActiveTerminal,
@@ -490,6 +497,17 @@ function AppContents({ initialProjectPath }: AppProps) {
     fetchBranchInfo,
     clearBranchState,
     checkPluginSuggestion,
+  });
+
+  useDevServerRetention({
+    keepDevServersRunning,
+    view,
+    workspaceTab,
+    isPreviewHidden,
+    currentProjectPath: currentProject?.path ?? null,
+    serverLifecycleVersion,
+    stopAllServersExcept,
+    startCurrentDevServer: handleStartDevServer,
   });
 
   // Save port handler: persist, update state, close modal, restart dev server
@@ -704,12 +722,15 @@ function AppContents({ initialProjectPath }: AppProps) {
   });
 
   // Plugin data for PluginSlot components (defined before early returns so all views can use them)
+  const hasCurrentProject = Boolean(currentProject);
+  const pluginProjectName = currentProject?.name ?? '';
+  const pluginProjectPath = currentProject?.path ?? '';
   const pluginProject = useMemo(
     () =>
-      currentProject
+      hasCurrentProject
         ? {
-            name: currentProject.name,
-            path: currentProject.path,
+            name: pluginProjectName,
+            path: pluginProjectPath,
             currentBranch: currentBranch || 'main',
             hasUncommittedChanges,
             devServerUrl: `http://localhost:${String(devServerPort)}`,
@@ -717,7 +738,9 @@ function AppContents({ initialProjectPath }: AppProps) {
           }
         : null,
     [
-      currentProject,
+      hasCurrentProject,
+      pluginProjectName,
+      pluginProjectPath,
       currentBranch,
       hasUncommittedChanges,
       devServerPort,
@@ -829,7 +852,7 @@ function AppContents({ initialProjectPath }: AppProps) {
 
   const devServerProps = useMemo(
     () => ({
-      hasDevServer: !!devServerRef.current,
+      hasDevServer: hasCurrentProject ? isServerRunning(pluginProjectPath) : false,
       knownDevServerPort,
       healthPanelRef,
       devServerPort,
@@ -850,7 +873,9 @@ function AppContents({ initialProjectPath }: AppProps) {
       onDevServerResize: resizeDevServer,
     }),
     [
-      devServerRef,
+      hasCurrentProject,
+      pluginProjectPath,
+      isServerRunning,
       knownDevServerPort,
       devServerPort,
       projectType,
@@ -1092,6 +1117,8 @@ function AppContents({ initialProjectPath }: AppProps) {
       onReorderProjects: handleReorderProjects,
       onSelectProjectTab: handleSelectProjectTab,
       isProjectDevServerRunning: isServerRunning,
+      getProjectDevServerSnapshot,
+      devServerLifecycleVersion: serverLifecycleVersion,
       onStopDevServer: handleStopDevServer,
       onSwitchAccount: openAccountSelect,
     }),
@@ -1110,6 +1137,8 @@ function AppContents({ initialProjectPath }: AppProps) {
       handleReorderProjects,
       handleSelectProjectTab,
       isServerRunning,
+      getProjectDevServerSnapshot,
+      serverLifecycleVersion,
       handleStopDevServer,
       setView,
     ]
@@ -1255,6 +1284,8 @@ function AppContents({ initialProjectPath }: AppProps) {
     onOpenProjectPicker: openProjectPicker,
     onSwitchAccount: openAccountSelect,
     isProjectDevServerRunning: isServerRunning,
+    getProjectDevServerSnapshot,
+    devServerLifecycleVersion: serverLifecycleVersion,
     isSidebarHidden,
     onToggleSidebar: toggleSidebar,
     compactWorkspaceToolbarEnabled,

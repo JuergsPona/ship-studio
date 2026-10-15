@@ -14,21 +14,40 @@ pub async fn start_static_server(
     app: tauri::AppHandle,
     window_label: String,
     project_path: String,
+    serve_path: String,
 ) -> Result<u16, CommandError> {
     let validated = validate_project_path(&project_path)?;
+    let validated_serve_path = validate_project_path(&serve_path)?;
+    let project_root = dunce::canonicalize(&validated)?;
+    let serve_root = dunce::canonicalize(&validated_serve_path)?;
+    if !serve_root.starts_with(&project_root) {
+        return Err(CommandError::Validation {
+            field: "serve_path".into(),
+            reason: "The static preview folder must be inside the project".into(),
+        });
+    }
+    // Key the instance (and its `static-file-changed` events) by the path the
+    // frontend sent, not the canonicalized one: `stop_static_server` and the
+    // Preview's event filter both compare against that exact string, so a
+    // symlinked or differently-cased path would otherwise leak the server and
+    // silence live reload. Containment was validated above.
     crate::static_server::start_static_server(
         app,
         window_label,
-        validated.to_string_lossy().to_string(),
+        project_path,
+        validated_serve_path.to_string_lossy().to_string(),
     )
     .await
     .map_err(CommandError::from)
 }
 
-/// Stop the static file server for a window.
+/// Stop the static file server for one project in a window.
 #[tauri::command]
 #[tracing::instrument]
-pub fn stop_static_server(window_label: String) -> Result<(), CommandError> {
-    crate::static_server::stop_static_server(&window_label);
+pub async fn stop_static_server(
+    window_label: String,
+    project_path: String,
+) -> Result<(), CommandError> {
+    crate::static_server::stop_static_server(&window_label, &project_path).await;
     Ok(())
 }

@@ -68,6 +68,20 @@
   right: 0;
 }
 
+/* The app Settings popout uses the same compact surface as the workspace
+   switcher drawer while keeping Dropdown's focus and dismissal behavior. */
+.ss-dropdown__menu.settings-menu {
+  min-width: 0;
+  background: var(--surface-control);
+  border: 0;
+  box-shadow: var(--shadow-sm);
+}
+
+.ss-dropdown__menu.settings-menu .ss-dropdown__item {
+  min-height: var(--control-height-standard);
+  padding: 0 var(--button-padding);
+}
+
 .ss-dropdown__item {
   display: flex;
   align-items: center;

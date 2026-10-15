@@ -23,6 +23,10 @@ const sidebarCss = readFileSync(
   fileURLToPath(new URL('../src/styles/features/workspace/sidebar.css', import.meta.url)),
   'utf8'
 );
+const sidebarProjectDragCss = readFileSync(
+  fileURLToPath(new URL('../src/styles/features/workspace/sidebar-project-drag.css', import.meta.url)),
+  'utf8'
+);
 
 function rule(selector, source = css) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -32,10 +36,19 @@ function rule(selector, source = css) {
 }
 
 test('ordinary sortable rows have no insertion indicator; tree indicators are explicit opt-in', () => {
-  assert.doesNotMatch(css, /\.drag-sort__item\.is-target::after/);
+  // Rows without a dedicated target use the item's edge, but only when the
+  // caller opts in. When a nested target exists, that surface owns the edge.
   assert.match(
     css,
-    /\.drag-sort__item\[data-drag-sort-target-indicator='true'\]\.is-target::after/
+    /\.drag-sort__item\[data-drag-sort-target-indicator='true'\]:not\(\s*:has\(\.drag-sort__target\)\s*\)\.is-target::after/
+  );
+  assert.match(
+    css,
+    /\.drag-sort__target\[data-drag-sort-target-indicator='true'\]\.is-target::after/
+  );
+  assert.doesNotMatch(
+    css,
+    /\.drag-sort__item\.is-target::after/
   );
 });
 
@@ -138,4 +151,18 @@ test('expanded sidebar previews override the full placeholder height with a row 
     sidebarCss,
     /\.drag-sort__overlay:has\(\.sidebar-project-row--overlay\)\s*\{[^}]*height:\s*var\(--size-sidebar-project-row\)/s
   );
+});
+
+test('workspace project drop slots use the expanded surface and a square top indicator', () => {
+  const placeholder = rule(
+    '.drag-sort__placeholder.workspace-sidebar-project-drop-placeholder',
+    sidebarProjectDragCss
+  );
+  assert.match(placeholder, /background:\s*var\(--surface-app\)/);
+  assert.match(placeholder, /border-radius:\s*0/);
+  assert.match(
+    placeholder,
+    /border-top:\s*var\(--drag-sort-target-indicator-width\) solid var\(--drag-sort-target-indicator\)/
+  );
+  assert.doesNotMatch(placeholder, /border-bottom\s*:/);
 });

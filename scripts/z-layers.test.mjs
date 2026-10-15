@@ -101,16 +101,14 @@ describe('workspace chrome stacking ladder', () => {
   it('keeps the preview toolbar above the pane separators it was raised for', () => {
     const consumers = [
       readCss('src/styles/features/preview.css'),
-      readCss('src/styles/features/workspace/split-pane.css'),
+      dockCss,
     ];
     let seen = 0;
-    for (const css of consumers) {
-      for (const [, token] of css.matchAll(/z-index:\s*var\((--z-pane-separator)\)/g)) {
-        seen += 1;
-        assert.ok(tokenValue(token) < previewToolbar);
-      }
+    for (const [, token] of dockCss.matchAll(/z-index:\s*var\((--z-pane-separator)\)/g)) {
+      seen += 1;
+      assert.ok(tokenValue(token) < previewToolbar);
     }
-    assert.ok(seen > 0, 'expected the pane separators to still use --z-pane-separator');
+    assert.equal(seen, 2, 'both workspace dock resize handles must use --z-pane-separator');
   });
 
   it('keeps the workspace titlebar and header on the header tier', () => {

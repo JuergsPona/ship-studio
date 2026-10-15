@@ -98,12 +98,25 @@ export const baseCommands: CommandMap = {
   list_pinned_projects: [],
   get_pinned_projects: [],
   get_settings: {},
+  get_keep_dev_servers_running: true,
   get_compact_workspace_toolbar_enabled: false,
   // Both default-on in the product, so captures show what people actually see.
   get_element_breadcrumb_enabled: true,
   get_commit_attribution_enabled: true,
   get_team_sharing_enabled: true,
   get_analytics_enabled: true,
+  get_automatic_report_status: {
+    enabled: false,
+    configured: false,
+    reason: 'development_build',
+    receipts: [],
+  },
+  get_issue_report_context: {
+    appVersion: '1.4.0',
+    operatingSystem: 'macOS',
+    architecture: 'aarch64',
+    defaultAgent: 'Claude Code',
+  },
   get_app_icon: 'brand',
   // `null` is the real third state here: never asked. The toggle then reflects
   // default-on, and the explainer runs before the first capture.
@@ -185,12 +198,20 @@ export const baseCommands: CommandMap = {
   register_external_project: null,
   set_compact_workspace_toolbar_enabled: null,
   fetch_community_templates: '[]',
+  // Keep public issue submission inert in the general harness. A scenario
+  // that explicitly wants to capture a result supplies its own fixture.
+  submit_github_issue: () => {
+    throw new Error('Public GitHub issue submission is disabled in the harness.');
+  },
   // Both `Result<(), CommandError>` on the Rust side, so `null` over IPC.
   // Reached only by the palette sweep — `devserver.stop` and
   // `preview.toggleElementBreadcrumb` are the two commands nothing else
   // invokes, so they were the last two captures still badged incomplete.
   stop_static_server: null,
   set_element_breadcrumb_enabled: null,
+  // `Result<(), CommandError>`; leaving Preview now tears down the project's
+  // preview proxy along with its dev server.
+  stop_preview_proxy: null,
 
   // ---- agents -------------------------------------------------------------
   get_agents_status: [

@@ -71,10 +71,41 @@ interface UsePreviewConnectionParams {
   /** Keep the preview shell mounted without probing a placeholder port while
    *  project setup is still reserving the real dev-server port. */
   enabled?: boolean;
+  /** Whether a previous view already owns a tracked live server for this project. */
+  serverAlreadyRunning?: boolean;
+  /** Unique identity for the currently tracked server process. */
+  serverInstanceId?: number | null;
   onServerReady?: () => void;
   onPageChange?: (page: string) => void;
   onSendToClaude?: (prompt: string) => void;
   onToast?: (message: string, type?: 'success' | 'error') => void;
+}
+
+const warmReadyServerInstances = new Map<string, true>();
+
+function previewRunKey(projectPath: string, serverInstanceId: number): string {
+  return JSON.stringify([projectPath, serverInstanceId]);
+}
+
+function hasWarmReadyPreview(projectPath: string, serverInstanceId: number | null | undefined) {
+  return (
+    serverInstanceId != null &&
+    warmReadyServerInstances.has(previewRunKey(projectPath, serverInstanceId))
+  );
+}
+
+function rememberWarmReadyPreview(
+  projectPath: string,
+  serverInstanceId: number | null | undefined
+) {
+  if (serverInstanceId == null) return;
+  const key = previewRunKey(projectPath, serverInstanceId);
+  warmReadyServerInstances.set(key, true);
+  // A window only needs a small number of recently opened projects in memory.
+  if (warmReadyServerInstances.size > 100) {
+    const oldestKey = warmReadyServerInstances.keys().next().value;
+    if (oldestKey) warmReadyServerInstances.delete(oldestKey);
+  }
 }
 
 export function usePreviewConnection({
@@ -83,19 +114,25 @@ export function usePreviewConnection({
   isDevServerRestarting,
   isStaticProject,
   enabled = true,
+  serverAlreadyRunning = false,
+  serverInstanceId = null,
   onServerReady,
   onPageChange,
   onSendToClaude,
   onToast,
 }: UsePreviewConnectionParams) {
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(
+    () => !(enabled && serverAlreadyRunning && hasWarmReadyPreview(projectPath, serverInstanceId))
+  );
   const [hasError, setHasError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   // User pressed "Stop" on the loading screen — halt the retry loop instead of
   // grinding through all SERVER_MAX_RETRIES attempts. Mirrored into a ref so the
   // in-flight checkServer closure can bail before scheduling the next retry.
   const [isStopped, setIsStopped] = useState(false);
-  const [serverReady, setServerReady] = useState(false);
+  const [serverReady, setServerReady] = useState(
+    () => enabled && serverAlreadyRunning && hasWarmReadyPreview(projectPath, serverInstanceId)
+  );
   const [pages, setPages] = useState<PageInfo[]>([]);
   const [currentPage, setCurrentPage] = useState('/');
   // `?query#hash` of the page the frame is actually on. Kept apart from
@@ -190,9 +227,11 @@ export function usePreviewConnection({
   // Preview surface can mount before the project has reserved a real port;
   // keep its loading shell visible but do not probe the 3000 placeholder.
   useEffect(() => {
-    setIsLoading(true);
+    const warmReady =
+      enabled && serverAlreadyRunning && hasWarmReadyPreview(projectPath, serverInstanceId);
+    setIsLoading(!warmReady);
     setHasError(false);
-    setServerReady(false);
+    setServerReady(warmReady);
     setRetryCount(-1);
     setIsStopped(false);
     setCurrentPage('/');
@@ -210,9 +249,55 @@ export function usePreviewConnection({
 
     if (!enabled) return;
 
+    // A tracked live server doesn't need the cold-start settle delay. Probe it
+    // immediately, but keep the loading state until the HTTP check succeeds so
+    // a stale process handle never masquerades as a ready Preview.
+    if (serverAlreadyRunning) {
+      setRetryCount(0);
+      return;
+    }
+
     const timer = setTimeout(() => setRetryCount(0), 1500);
     return () => clearTimeout(timer);
+    // Server identity is deliberately NOT a dependency: it changes on every
+    // restart of the same project's server (toolbar restart, port or custom
+    // command save, branch switch), and resetting here would throw the user
+    // back to `/`. The effect below re-checks readiness for a new identity
+    // without touching navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectPath, port, enabled]);
+
+  // A new server identity for the SAME project re-evaluates readiness only.
+  // Project switches are owned by the full reset above; restarts are owned by
+  // the isDevServerRestarting effect below, which already re-probes when the
+  // restart finishes.
+  const serverIdentityRef = useRef({ projectPath, serverAlreadyRunning, serverInstanceId });
+  const isDevServerRestartingRef = useRef(isDevServerRestarting);
+  isDevServerRestartingRef.current = isDevServerRestarting;
+  const serverReadyRef = useRef(serverReady);
+  serverReadyRef.current = serverReady;
+  useEffect(() => {
+    const previous = serverIdentityRef.current;
+    serverIdentityRef.current = { projectPath, serverAlreadyRunning, serverInstanceId };
+    if (previous.projectPath !== projectPath) return;
+    if (
+      previous.serverAlreadyRunning === serverAlreadyRunning &&
+      previous.serverInstanceId === serverInstanceId
+    ) {
+      return;
+    }
+    if (!enabled || !serverAlreadyRunning || isDevServerRestartingRef.current) return;
+    if (hasWarmReadyPreview(projectPath, serverInstanceId)) {
+      setServerReady(true);
+      setIsLoading(false);
+      setHasError(false);
+      return;
+    }
+    // A server that just came up skips the cold-start settle delay. One that
+    // replaced an already-verified run keeps the frame; the periodic health
+    // check owns that case, as it did before identities existed.
+    if (!serverReadyRef.current) setRetryCount(0);
+  }, [projectPath, enabled, serverAlreadyRunning, serverInstanceId]);
 
   // Reset server state when dev server is restarting, start polling when done
   useEffect(() => {
@@ -331,7 +416,7 @@ export function usePreviewConnection({
     let cancelled = false;
     const windowLabel = getWindowLabel();
 
-    invoke<number>('start_preview_proxy', { windowLabel, targetPort: port })
+    invoke<number>('start_preview_proxy', { windowLabel, projectPath, targetPort: port })
       .then((proxyP) => {
         if (!cancelled) {
           logger.info('[Preview] Proxy started', { proxyPort: proxyP, targetPort: port });
@@ -346,10 +431,8 @@ export function usePreviewConnection({
 
     return () => {
       cancelled = true;
-      setProxyPort(null);
-      invoke('stop_preview_proxy', { windowLabel }).catch(() => {});
     };
-  }, [serverReady, port]);
+  }, [serverReady, port, projectPath]);
 
   // Arm the blank-iframe watchdog on every explicit navigation: initial proxy
   // URL and page select change `currentUrl`, and refresh / same-page select bump
@@ -512,7 +595,8 @@ export function usePreviewConnection({
 
     let unlisten: (() => void) | null = null;
 
-    void listen<{ windowLabel: string }>('static-file-changed', () => {
+    void listen<{ windowLabel: string; projectPath: string }>('static-file-changed', (event) => {
+      if (event.payload.projectPath !== projectPath) return;
       logger.debug('[Preview] File change detected, reloading preview');
       setReloadToken((t) => t + 1);
     }).then((fn) => {
@@ -522,7 +606,7 @@ export function usePreviewConnection({
     return () => {
       unlisten?.();
     };
-  }, [isStaticProject, serverReady]);
+  }, [isStaticProject, projectPath, serverReady]);
 
   // Server check polling
   useEffect(() => {
@@ -541,9 +625,13 @@ export function usePreviewConnection({
     logger.info('[Preview] Starting server check', { retryCount, url: devServerUrl });
 
     const checkServer = async () => {
-      setIsLoading(true);
-      setHasError(false);
-      setServerReady(false);
+      const keepWarmPreview =
+        serverAlreadyRunning && hasWarmReadyPreview(projectPath, serverInstanceId);
+      if (!keepWarmPreview) {
+        setIsLoading(true);
+        setHasError(false);
+        setServerReady(false);
+      }
 
       const controller = new AbortController();
       readyProbeControllerRef.current = controller;
@@ -552,6 +640,7 @@ export function usePreviewConnection({
         await fetch(devServerUrl, { mode: 'no-cors', signal: controller.signal });
 
         logger.info('[Preview] Server check succeeded', { port });
+        rememberWarmReadyPreview(projectPath, serverInstanceId);
         setIsLoading(false);
         setHasError(false);
         setServerReady(true);
@@ -577,6 +666,7 @@ export function usePreviewConnection({
         } else {
           setIsLoading(false);
           setHasError(true);
+          if (keepWarmPreview) setServerReady(false);
         }
       } finally {
         clearTimeout(timeoutId);
@@ -599,7 +689,15 @@ export function usePreviewConnection({
       readyProbeControllerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- port is covered by devServerUrl
-  }, [devServerUrl, retryCount, isStopped, enabled]);
+  }, [
+    devServerUrl,
+    retryCount,
+    isStopped,
+    enabled,
+    projectPath,
+    serverAlreadyRunning,
+    serverInstanceId,
+  ]);
 
   // Periodic health check after server is ready
   useEffect(() => {
