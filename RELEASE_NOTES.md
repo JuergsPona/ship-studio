@@ -6,6 +6,18 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v1.5.0
+
+- **Report a bug or suggest a feature from inside the app** - A new Settings & Help menu, on the dashboard and in the workspace, opens a guided form that becomes a GitHub issue. You see and can edit the exact text before anything is posted, drafts are saved as you go, and nothing is ever filed without you pressing Submit
+- **Dev servers stay warm while you switch** - Going to another project, back Home, or over to Code no longer means a cold start when you return: Preview comes straight back on the page you left. On by default; turn it off in Settings → Experimental if you'd rather hidden projects stop their servers
+- **A contrast checker in the colour picker** - See whether a colour passes WCAG AA and AAA against its background, and which values would. The picker also has a Variables tab, so you can pick a CSS variable instead of a literal, and remembers your recent colours
+- **More ways to read the Elements panel** - Tag names or tag icons, a mono font, colour-coding or plain grey, and one button to expand or collapse the whole tree
+- **A clearer Team panel** - Redesigned People and comment cards, counts and "Mark everything as read" in What's New, and icons for merged work, branches and worktrees
+- **Drag projects between Pinned and Active** - Drop a project in the other list to pin or unpin it, exactly where you want it
+- **Type a URL into the preview's page switcher** - Add query params or a #hash, or paste a localhost address. The pencil fills in the current URL so you can change one param instead of retyping it
+- **Fixed: restarting a dev server sent Preview back to the home page**
+
+
 ## What's New in v1.4.0
 
 - **Put every panel where you want it** - Agent, Team, Variables, Edit and Elements can be dragged anywhere in the workspace: either side of the preview, stacked above or below another panel in the same column, or floated as a window. Drop a panel away from the rail and it floats. Nothing reloads when it moves — the preview keeps its page and the terminal keeps its scrollback

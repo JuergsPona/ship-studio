@@ -26,6 +26,19 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.5.0', // v1.5.0
+    items: [
+      'New: report a bug or suggest a feature without leaving the app. The Settings & Help menu, on the dashboard and in the workspace, opens a guided form that becomes a GitHub issue. You see and can edit the exact text before anything is posted, drafts are saved as you go, and nothing is filed until you press Submit',
+      "Dev servers stay warm while you switch projects or views, so coming back to Preview is instant and lands on the page you left. On by default; turn it off in Settings → Experimental if you'd rather hidden projects stop their servers",
+      'New: a WCAG contrast checker in the colour picker shows whether a colour passes AA and AAA against its background, and which values would. The picker also gains a Variables tab and a row of recent colours',
+      'The Elements panel can show tag names or tag icons, a mono font, colour-coding or plain grey, and expand or collapse the whole tree in one click',
+      'A clearer Team panel: redesigned People and comment cards, counts and "Mark everything as read" in What\'s New, and icons for merged work, branches and worktrees',
+      'Drag projects between Pinned and Active in the sidebar to pin or unpin them, dropping them exactly where you want',
+      "Type a URL into the preview's page switcher: add query params or a #hash, or paste a localhost address. The pencil fills in the current URL so you can change one param instead of retyping it",
+      'Fixed: restarting a dev server sent Preview back to the home page',
+    ],
+  },
+  {
     version: '1.4.0', // v1.4.0
     items: [
       'New: flexible panels — Agent, Team, Variables, Edit and Elements go anywhere in the workspace. Either side of the preview, stacked above or below another panel in the same column, or floated as a window. Drag a panel by its header and drop it at the seam you want; drop it away from the rail and it floats. Nothing reloads when it moves, so the preview keeps its page and the terminal keeps its scrollback',
