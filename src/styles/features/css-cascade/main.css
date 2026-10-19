@@ -330,10 +330,8 @@
 
 .ss-media-query-group__collapse {
   align-self: start;
-  margin-block-start: calc(
-    var(--spacing-sm) + var(--stroke-1) +
-      ((var(--font-size-11) + (2 * var(--space-06)) - var(--size-icon-sm)) / 2)
-  );
+  block-size: calc(var(--font-size-11) + var(--space-06) + var(--space-06));
+  margin-block-start: calc(var(--spacing-sm) + var(--stroke-1));
 }
 
 .ss-media-query-group__source-row {
@@ -342,6 +340,8 @@
   flex: 0 0 var(--size-control-compact);
   align-items: center;
   justify-content: flex-end;
+  block-size: var(--font-size-11);
+  margin-block-start: var(--space-06);
   min-width: var(--size-control-compact);
   pointer-events: none;
 }
@@ -355,7 +355,7 @@
   box-sizing: border-box;
   display: flex;
   position: relative;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--spacing-xs);
   align-self: stretch;
   width: 100%;
