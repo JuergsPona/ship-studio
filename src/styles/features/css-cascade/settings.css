@@ -202,12 +202,20 @@
 .ss-settings__attr,
 .ss-settings__attr-add {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) var(--size-control-compact);
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   column-gap: var(--spacing-xs);
   min-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.ss-settings__attr {
+  position: relative;
+  align-items: baseline;
+}
+
+.ss-settings__attr-add {
+  align-items: center;
 }
 
 /* Click-to-edit attribute key (button styled as the property-colored name). */
@@ -240,8 +248,10 @@
 /* Click-to-edit attribute value (button styled as plain text). */
 .ss-settings__attr-value--editable {
   all: unset;
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
+  padding-inline-end: var(--size-control-compact);
   cursor: text;
   color: var(--text-secondary);
   overflow-wrap: anywhere;
@@ -277,6 +287,10 @@
   color: var(--property-text);
 }
 
+.ss-settings__attr > .ss-settings__attr-input:not(.ss-settings__attr-input--name) {
+  padding-inline-end: var(--size-control-compact);
+}
+
 /* Clean "+ Add attribute" affordance — content-width (doesn't stretch the column),
    matching the panel's quiet control style. */
 .ss-settings__attr-add-btn {
@@ -303,7 +317,11 @@
 
 .ss-settings__attr-remove {
   all: unset;
-  width: 100%;
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: 50%;
+  transform: translateY(-50%);
+  width: var(--size-control-compact);
   height: var(--size-control-compact);
   cursor: pointer;
   display: inline-flex;
@@ -324,11 +342,6 @@
 }
 .ss-settings__attr-remove:hover {
   color: var(--accent-error);
-}
-
-.ss-settings__attr-remove-slot {
-  width: 100%;
-  height: var(--size-control-compact);
 }
 
 .ss-settings__empty {

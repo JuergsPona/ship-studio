@@ -532,7 +532,6 @@ function AttrRow({
           <CloseIcon size={10} />
         </button>
       )}
-      {!editable && <span className="ss-settings__attr-remove-slot" aria-hidden="true" />}
     </li>
   );
 }
@@ -588,7 +587,6 @@ function AddAttr({ onAdd }: { onAdd: (name: string, value: string) => void }) {
         }}
         onBlur={submit}
       />
-      <span className="ss-settings__attr-remove-slot" aria-hidden="true" />
     </div>
   );
 }
