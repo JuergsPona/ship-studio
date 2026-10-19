@@ -456,6 +456,53 @@ it('swaps the selected image src on ss:setSrc and clears a stale srcset', async 
   expect(img.getAttribute('srcset')).toBe('');
 });
 
+it('updates direct text without flattening mixed child markup on ss:setText', async () => {
+  document.body.innerHTML =
+    '<p class="settings-text">Old copy</p><p class="settings-mixed">Keep <span>formatting</span></p>';
+  send({ type: 'ss:activate' });
+  await flushMessages();
+
+  const plain = document.querySelector('.settings-text')!;
+  const selectedPlain = nextSelect();
+  plain.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await selectedPlain;
+  send({ type: 'ss:setText', value: 'A & <copy> {title}' });
+  expect(plain.textContent).toBe('A & <copy> {title}');
+
+  const mixed = document.querySelector('.settings-mixed')!;
+  const nested = mixed.querySelector('span')!;
+  const selectedMixed = nextSelect();
+  mixed.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await selectedMixed;
+  send({ type: 'ss:setText', value: 'Do not remove nested markup' });
+  expect(mixed.textContent).toBe('Keep formatting');
+  expect(mixed.querySelector('span')).toBe(nested);
+});
+
+it('replaces the selected tag while preserving its attributes and child nodes on ss:setTag', async () => {
+  document.body.innerHTML =
+    '<div class="settings-tag" data-note="keep"><span class="nested">Nested</span> tail</div>';
+  send({ type: 'ss:activate' });
+  await flushMessages();
+  const original = document.querySelector('.settings-tag')!;
+  const nested = original.querySelector('.nested')!;
+  const selected = nextSelect();
+  original.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await selected;
+
+  send({ type: 'ss:setTag', value: 'section' });
+
+  const converted = document.querySelector('section.settings-tag')!;
+  expect(converted.getAttribute('data-note')).toBe('keep');
+  expect(converted.firstElementChild).toBe(nested);
+  expect(converted.textContent).toBe('Nested tail');
+
+  // The handler updates selectedSet as well as the DOM, so later editor messages
+  // target the replacement element rather than a detached source node.
+  send({ type: 'ss:mutate', className: 'after-conversion' });
+  expect(converted.className).toBe('after-conversion');
+});
+
 /* ===== Code-first CSS editor: ss:cascade enumeration + raw-text preview ===== */
 
 interface CascadeDecl {
