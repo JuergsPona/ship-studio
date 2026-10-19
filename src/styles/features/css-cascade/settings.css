@@ -28,12 +28,12 @@
   align-self: flex-start;
   width: fit-content;
   max-width: 100%;
-  border-radius: var(--radius-4);
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
 .ss-settings__tag-trigger.button:focus-visible {
-  outline: var(--stroke-2) solid var(--accent-focus);
+  outline: var(--focus-ring-width) solid var(--accent-focus);
   outline-offset: var(--focus-ring-offset);
 }
 
@@ -103,8 +103,8 @@
 
 .ss-settings__text-input:focus-visible {
   border-color: var(--accent-active);
-  outline: var(--stroke-1) solid var(--accent-active);
-  outline-offset: var(--stroke-1);
+  outline: var(--border-width-default) solid var(--accent-active);
+  outline-offset: var(--border-width-default);
 }
 
 .ss-settings__text-input:disabled {
@@ -299,8 +299,8 @@
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
-  margin-inline-start: calc(var(--space-02) * -1);
-  padding: var(--space-02);
+  margin-inline-start: calc(var(--spacing-2xs) * -1);
+  padding: var(--spacing-2xs);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
   font-size: var(--font-size-badge);
@@ -337,7 +337,7 @@
 }
 .ss-settings__attr-remove:focus-visible {
   opacity: 1;
-  outline: var(--stroke-2) solid var(--accent-focus);
+  outline: var(--focus-ring-width) solid var(--accent-focus);
   outline-offset: var(--focus-ring-offset);
 }
 .ss-settings__attr-remove:hover {

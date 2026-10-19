@@ -100,7 +100,7 @@
   min-width: 0;
   font-family: var(--font-code);
   font-size: var(--font-size-body-sm);
-  line-height: var(--line-height-default);
+  line-height: var(--line-height-control);
 }
 
 .ss-cascade-target__tag {
@@ -339,8 +339,8 @@
   flex: 0 0 var(--size-control-compact);
   align-items: center;
   justify-content: flex-end;
-  block-size: var(--font-size-11);
-  margin-block-start: calc(var(--space-06) - var(--space-02));
+  block-size: var(--cascade-metadata-size);
+  margin-block-start: var(--spacing-xs);
   min-width: var(--size-control-compact);
   pointer-events: none;
 }
@@ -497,7 +497,7 @@
 .ss-cascade-selector-display__label {
   color: var(--text-muted);
   font-family: var(--font-code);
-  font-size: var(--font-size-11);
+  font-size: var(--cascade-metadata-size);
   font-weight: var(--font-weight-regular);
 }
 .ss-cascade-selector-display[role='button'] {
@@ -565,8 +565,8 @@
    first-row alignment with a more specific media-query rule after that reset. */
 .ss-media-query-group .ss-media-query-group__collapse {
   align-self: start;
-  block-size: calc(var(--font-size-11) + var(--space-06) + var(--space-06));
-  margin-block-start: calc(var(--spacing-sm) + var(--stroke-1) - var(--space-02));
+  block-size: var(--cascade-chip-row-min-height);
+  margin-block-start: calc(var(--spacing-sm) + var(--border-width-default) - var(--spacing-2xs));
 }
 
 /* Main class tag */
@@ -738,10 +738,10 @@
 .ss-cascade-card__search-actions {
   display: flex;
   padding-block: var(--spacing-2xs);
-  padding-inline-start: calc(var(--space-02) + var(--space-06));
+  padding-inline-start: var(--spacing-sm);
 }
 .ss-cascade-card__search-actions--readonly {
-  padding-inline-start: calc(var(--space-02) + var(--space-08));
+  padding-inline-start: calc(var(--spacing-sm) + var(--spacing-2xs));
 }
 .ss-cascade-card__draft-row {
   display: flex;
@@ -768,7 +768,7 @@
   min-height: var(--spacing-md);
   margin-top: var(--spacing-xs);
   /* Align the add control with the declaration text inside each row. */
-  padding-inline-start: calc(var(--space-02) + var(--space-06));
+  padding-inline-start: var(--spacing-sm);
 }
 .ss-cascade-card__add,
 .ss-cascade-card__add.button {
@@ -785,13 +785,13 @@
   color: var(--text-muted);
   font-family: var(--font-ui);
   font-size: var(--font-size-body-sm);
-  line-height: var(--line-height-default);
+  line-height: var(--line-height-control);
   text-decoration: none;
   transition: color var(--transition-fast);
 }
 
 .ss-cascade-card__add:focus-visible {
-  outline: var(--stroke-2) solid var(--accent-focus);
+  outline: var(--focus-ring-width) solid var(--accent-focus);
   outline-offset: var(--focus-ring-offset);
 }
 
