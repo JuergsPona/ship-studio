@@ -140,8 +140,8 @@
 
   --tag-surface: color-mix(in oklch, var(--color-green-700) 15%);
   --tag-text: var(--color-green-400);
-  --tag-chip-surface: var(--tag-text);
-  --tag-chip-surface-hover: var(--color-green-600);
+  --tag-chip-surface: var(--color-green-800);
+  --tag-chip-surface-hover: var(--color-green-700);
   --tag-chip-text: var(--text-inverse);
 
   --variable-surface: var(--color-purple-700);

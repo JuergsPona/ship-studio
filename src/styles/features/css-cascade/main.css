@@ -183,7 +183,7 @@
   * =======================================================================
 */
 
-/* The Button primitive owns the action styling; this only places it in the panel. */
+/* Cascade Add actions share the same inline TextButton treatment as Add property. */
 .ss-cascade-action {
   width: 100%;
   margin: 0;
@@ -272,13 +272,10 @@
   padding: var(--spacing-sm);
 }
 
-.ss-media-query-group__source-row {
-  position: relative;
+.ss-media-query-group__warning-row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   min-height: var(--spacing-md);
-  padding-block: var(--spacing-xs);
 }
 
 .ss-media-query-group__incomplete {
@@ -300,56 +297,64 @@
   flex: 0 1 auto;
   max-width: 100%;
   min-width: 0;
-  margin-inline-start: auto;
+  margin: 0;
 }
 
 .ss-cascade-card__trash.ss-media-query-group__trash {
   position: absolute;
+  inset-block-start: 50%;
   inset-inline-end: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
-.ss-media-query-group:hover .ss-media-query-group__trash {
+.ss-media-query-group__query-card:hover .ss-media-query-group__trash,
+.ss-media-query-group__query-card:focus-within .ss-media-query-group__trash {
   opacity: 1;
+  pointer-events: auto;
 }
 
-.ss-media-query-group:has(.ss-media-query-group__trash):hover .ss-media-query-group__source {
+.ss-media-query-group__query-card:has(.ss-media-query-group__trash):is(:hover, :focus-within)
+  .ss-media-query-group__source {
   opacity: 0;
 }
 
 .ss-media-query-group__query-row {
   display: grid;
-  grid-template-columns: var(--spacing-md) minmax(0, 1fr);
+  grid-template-columns: var(--cascade-rail) minmax(0, 1fr);
   align-items: start;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-xs);
   width: 100%;
   min-width: 0;
 }
 
 .ss-media-query-group__collapse {
-  all: unset;
-  display: inline-flex;
+  align-self: start;
+  margin-block-start: calc(
+    var(--spacing-sm) + var(--stroke-1) +
+      ((var(--font-size-11) + (2 * var(--space-06)) - var(--size-icon-sm)) / 2)
+  );
+}
+
+.ss-media-query-group__source-row {
+  position: relative;
+  display: flex;
+  flex: 0 0 var(--size-control-compact);
   align-items: center;
-  justify-content: center;
-  width: var(--spacing-md);
-  min-height: var(--size-control-medium);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition:
-    color var(--transition-interaction-fast),
-    transform var(--transition-interaction-fast);
+  justify-content: flex-end;
+  min-width: var(--size-control-compact);
+  pointer-events: none;
 }
 
-.ss-media-query-group__collapse.is-collapsed {
-  transform: rotate(-90deg);
-}
-
-.ss-media-query-group__collapse:hover {
-  color: var(--text-secondary);
+.ss-media-query-group__source-row.has-source {
+  flex: 0 1 45%;
+  max-width: 45%;
 }
 
 .ss-media-query-group__query-card {
   box-sizing: border-box;
   display: flex;
+  position: relative;
   align-items: center;
   gap: var(--spacing-xs);
   align-self: stretch;
@@ -758,19 +763,36 @@
   /* Align the add control with the declaration text inside each row. */
   padding-inline-start: calc(var(--space-02) + var(--space-06));
 }
-.ss-cascade-card__add {
+.ss-cascade-card__add,
+.ss-cascade-card__add.button {
   all: unset;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   color: var(--text-muted);
+  font-family: var(--font-ui);
   font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-default);
+  text-decoration: none;
   transition: color var(--transition-fast);
 }
-.ss-cascade-card__add:hover,
+
+.ss-cascade-card__add:focus-visible {
+  outline: var(--stroke-2) solid var(--accent-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.ss-cascade-card__add.button.text-button:hover:not(:disabled),
+.ss-cascade-card__add:hover:not(:disabled),
 .ss-cascade-card__add.is-open {
   color: var(--text-primary);
+  text-decoration: none;
 }
 .ss-cascade-card__src-chip {
   position: absolute;

@@ -53,15 +53,14 @@
 .ss-settings__tag-chip {
   gap: var(--spacing-xs);
   max-width: 100%;
-  overflow: visible;
   background: var(--tag-chip-surface);
-  color: var(--text-on-accent);
+  color: var(--tag-chip-text);
 }
 
 .ss-settings__tag-trigger:hover:not(:disabled) .ss-settings__tag-chip,
 .ss-settings__tag-trigger[aria-expanded='true'] .ss-settings__tag-chip {
   background: var(--tag-chip-surface-hover);
-  color: var(--text-on-accent);
+  color: var(--tag-chip-text);
 }
 
 .ss-settings__tag-chip > svg {
@@ -286,8 +285,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
-  margin-top: var(--spacing-xs);
-  padding: 3px var(--spacing-sm); /* css-ok: compact control height */
+  padding: var(--space-02) 0;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
   font-size: var(--font-size-badge);

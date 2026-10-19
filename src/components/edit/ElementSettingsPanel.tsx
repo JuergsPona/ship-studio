@@ -280,7 +280,6 @@ export function ElementSettingsPanel({ settings }: { settings: ElementSettings }
 
       <section className="ss-settings__group ss-settings__group--attributes">
         <h4 className="ss-settings__label">Attributes</h4>
-        {canEditAttributes && <AddAttr onAdd={(name, value) => setAttribute(name, value)} />}
         <ul className="ss-settings__attrs">
           {attributes.map((a) => (
             <AttrRow
@@ -294,6 +293,7 @@ export function ElementSettingsPanel({ settings }: { settings: ElementSettings }
             />
           ))}
         </ul>
+        {canEditAttributes && <AddAttr onAdd={(name, value) => setAttribute(name, value)} />}
         {attributes.length === 0 && !canEditAttributes && (
           <p className="ss-settings__empty">No other attributes.</p>
         )}

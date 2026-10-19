@@ -132,12 +132,12 @@ it('orders Text after Classes and before Attributes', () => {
   ).toEqual(['Tag', 'Classes', 'Text', 'Attributes']);
 });
 
-it('places Add attribute directly under its heading before the rows', () => {
+it('places Add attribute directly underneath the attribute rows', () => {
   render(<ElementSettingsPanel settings={makeSettings({ attributes: [] })} />);
 
   const heading = screen.getByRole('heading', { name: 'Attributes' });
-  expect(heading.nextElementSibling).toHaveTextContent('Add attribute');
-  expect(heading.nextElementSibling?.nextElementSibling).toHaveClass('ss-settings__attrs');
+  expect(heading.nextElementSibling).toHaveClass('ss-settings__attrs');
+  expect(heading.nextElementSibling?.nextElementSibling).toHaveTextContent('Add attribute');
 });
 
 it('registers palette actions to focus text and open the compatible tag menu', () => {
