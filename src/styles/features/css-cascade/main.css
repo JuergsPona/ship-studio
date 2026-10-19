@@ -335,7 +335,7 @@
   align-items: center;
   justify-content: flex-end;
   block-size: var(--font-size-11);
-  margin-block-start: var(--space-06);
+  margin-block-start: calc(var(--space-06) - var(--space-02));
   min-width: var(--size-control-compact);
   pointer-events: none;
 }
@@ -561,7 +561,7 @@
 .ss-media-query-group .ss-media-query-group__collapse {
   align-self: start;
   block-size: calc(var(--font-size-11) + var(--space-06) + var(--space-06));
-  margin-block-start: calc(var(--spacing-sm) + var(--stroke-1));
+  margin-block-start: calc(var(--spacing-sm) + var(--stroke-1) - var(--space-02));
 }
 
 /* Main class tag */
