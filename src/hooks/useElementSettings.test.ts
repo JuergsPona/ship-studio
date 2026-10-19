@@ -288,7 +288,7 @@ describe('useElementSettings text source editing', () => {
     const oldResolution = new Promise<TextResolution>((resolve) => {
       resolveOld = resolve;
     });
-    (resolveTextSource as Fn).mockImplementation(
+    vi.mocked(resolveTextSource).mockImplementation(
       (_projectPath: string, selected: ElementSignature) =>
         selected === oldSelection
           ? oldResolution
@@ -359,7 +359,7 @@ describe('useElementSettings tag conversion', () => {
   it('does not overwrite the next selection when an older attribute write finishes late', async () => {
     const oldSelection = { ...CLASSLESS, className: 'old', text: 'Old selection' };
     const newSelection = { ...CLASSLESS, className: 'new', text: 'New selection' };
-    (resolveElementHtml as Fn).mockImplementation(
+    vi.mocked(resolveElementHtml).mockImplementation(
       (_projectPath: string, selected: ElementSignature) =>
         Promise.resolve({
           file: 'Hero.tsx',
