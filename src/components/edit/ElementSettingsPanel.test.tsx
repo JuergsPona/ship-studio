@@ -8,8 +8,8 @@ import { ElementSettingsPanel } from './ElementSettingsPanel';
 function makeSettings(overrides: Partial<ElementSettings> = {}): ElementSettings {
   return {
     selectionKey: 'selected-element',
-    tag: 'div',
-    tagOptions: [{ tag: 'div', label: 'Div' }],
+    tag: 'p',
+    tagOptions: [{ tag: 'p', label: 'Paragraph' }],
     canEditTag: false,
     setTag: vi.fn().mockResolvedValue(true),
     classes: ['ss-div-c098'],
