@@ -170,7 +170,7 @@ export function ElementSettingsPanel({ settings }: { settings: ElementSettings }
             >
               <CascadeChip tone="selector" className="ss-settings__tag-chip">
                 <span className="ss-settings__tag-name">{tag || '—'}</span>
-                <ChevronIcon size={12} />
+                <ChevronIcon size={10} />
               </CascadeChip>
             </MenuButton>
           )}
