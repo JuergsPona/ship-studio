@@ -27,6 +27,8 @@
   flex: 0 0 auto;
   min-width: 0;
   width: 100%;
+  padding-bottom: var(--spacing-sm);
+  border-bottom: var(--border-width-default) solid var(--border-default);
 }
 
 .ss-cascade-toolbar {
@@ -70,8 +72,11 @@
   align-items: stretch;
   gap: var(--spacing-sm);
   min-width: 0;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: var(--border-width-default) solid var(--border-default);
+  padding: var(--spacing-sm) var(--spacing-md) var(--spacing-xs);
+}
+
+.ss-cascade-header + .tabs > .ss-cascade-scope {
+  margin-top: var(--spacing-xs);
 }
 
 .ss-cascade-header__main {

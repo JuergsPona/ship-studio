@@ -561,19 +561,6 @@ export function CascadeRuleCard(props: Props) {
             </div>
           )}
 
-          {!props.pendingReason && (
-            <div className="ss-cascade-card__add-row">
-              <AddMenu
-                mode={isKeyframes ? 'keyframes' : isStep ? 'props' : 'full'}
-                onAddProperty={(prop) => {
-                  onChange(addDeclaration(body, { prop, value: '', important: false }));
-                  setAutoEditProp(prop); // → the new row opens its value input
-                }}
-                onNest={(sel) => onChange(addNestedRule(body, sel))}
-              />
-            </div>
-          )}
-
           {prediction && !props.pendingReason && (
             <div
               className="ss-decl ss-decl--ghost"
@@ -585,7 +572,10 @@ export function CascadeRuleCard(props: Props) {
                 onClick={acceptPrediction}
                 aria-label={`Add ${prediction.prop}: ${prediction.value}`}
               >
-                <span className="ss-decl__prop">{prediction.prop}</span>
+                <span className="ss-decl__ghost-property">
+                  <kbd className="ss-decl__ghost-kbd">Tab</kbd>
+                  <span className="ss-decl__prop">{prediction.prop}</span>
+                </span>
                 <span className="ss-decl__colon">:</span>
                 <span className="ss-decl__value">
                   <CssValueText value={prediction.value} />
@@ -594,7 +584,6 @@ export function CascadeRuleCard(props: Props) {
                   )}
                 </span>
               </button>
-              <kbd className="ss-decl__ghost-kbd">Tab</kbd>
               <button
                 type="button"
                 className="ss-decl__ghost-dismiss"
@@ -609,6 +598,19 @@ export function CascadeRuleCard(props: Props) {
               >
                 <CloseIcon size={11} />
               </button>
+            </div>
+          )}
+
+          {!props.pendingReason && (
+            <div className="ss-cascade-card__add-row">
+              <AddMenu
+                mode={isKeyframes ? 'keyframes' : isStep ? 'props' : 'full'}
+                onAddProperty={(prop) => {
+                  onChange(addDeclaration(body, { prop, value: '', important: false }));
+                  setAutoEditProp(prop); // → the new row opens its value input
+                }}
+                onNest={(sel) => onChange(addNestedRule(body, sel))}
+              />
             </div>
           )}
 

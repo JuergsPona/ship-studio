@@ -624,6 +624,74 @@ export function CssCascadePanel({
     );
   };
 
+  const scopeHeader =
+    scope === 'animations' ? (
+      <div className="ss-cascade-header">
+        <div className="ss-cascade-header__main">
+          {selectedTarget}
+          <CascadeToolbar
+            kind="animations"
+            searchOpen={searchOpen}
+            searchButtonRef={searchButtonRef}
+            searchFieldId={searchFieldId}
+            onSearchOpen={openSearch}
+            onSearchToggle={toggleSearch}
+            order={displayOrder}
+            onOrderChange={setDisplayOrder}
+            allCollapsed={allCollapsed}
+            onCollapseAll={collapseAll}
+            onExpandAll={expandAll}
+          />
+        </div>
+        {searchOpen && (
+          <SearchField
+            id={searchFieldId}
+            ref={searchInputRef}
+            value={searchTerm}
+            onChange={changeSearch}
+            onKeyDown={handleSearchKeyDown}
+            aria-label="Search CSS animations, properties, and values"
+            placeholder="Search animations"
+            clearLabel="Clear CSS search"
+            className="ss-cascade-header__search"
+          />
+        )}
+      </div>
+    ) : selection ? (
+      <div className="ss-cascade-header">
+        <div className="ss-cascade-header__main">
+          {selectedTarget}
+          {scope === 'style' && (
+            <CascadeToolbar
+              searchOpen={searchOpen}
+              searchButtonRef={searchButtonRef}
+              searchFieldId={searchFieldId}
+              onSearchOpen={openSearch}
+              onSearchToggle={toggleSearch}
+              order={displayOrder}
+              onOrderChange={setDisplayOrder}
+              allCollapsed={allCollapsed}
+              onCollapseAll={collapseAll}
+              onExpandAll={expandAll}
+            />
+          )}
+        </div>
+        {scope === 'style' && searchOpen && (
+          <SearchField
+            id={searchFieldId}
+            ref={searchInputRef}
+            value={searchTerm}
+            onChange={changeSearch}
+            onKeyDown={handleSearchKeyDown}
+            aria-label="Search CSS selectors, properties, and values"
+            placeholder="Search CSS"
+            clearLabel="Clear CSS search"
+            className="ss-cascade-header__search"
+          />
+        )}
+      </div>
+    ) : null;
+
   return (
     <div
       className={`ss-edit-panel ss-cascade-panel ss-cascade-panel--dockable${
@@ -658,6 +726,7 @@ export function CssCascadePanel({
       </div>
 
       <div className="ss-edit-panel__body">
+        {scopeHeader}
         <Tabs value={scope} mode="navigation" onValueChange={(next) => setScope(next as Scope)}>
           <TabsList className="ss-cascade-scope" aria-label="CSS panel view">
             <TabsTab value="style">Style</TabsTab>
@@ -667,92 +736,24 @@ export function CssCascadePanel({
         </Tabs>
         <div className="ss-cascade-content">
           {scope === 'animations' ? (
-            <>
-              <div className="ss-cascade-header">
-                <div className="ss-cascade-header__main">
-                  {selectedTarget}
-                  <CascadeToolbar
-                    kind="animations"
-                    searchOpen={searchOpen}
-                    searchButtonRef={searchButtonRef}
-                    searchFieldId={searchFieldId}
-                    onSearchOpen={openSearch}
-                    onSearchToggle={toggleSearch}
-                    order={displayOrder}
-                    onOrderChange={setDisplayOrder}
-                    allCollapsed={allCollapsed}
-                    onCollapseAll={collapseAll}
-                    onExpandAll={expandAll}
-                  />
-                </div>
-                {searchOpen && (
-                  <SearchField
-                    id={searchFieldId}
-                    ref={searchInputRef}
-                    value={searchTerm}
-                    onChange={changeSearch}
-                    onKeyDown={handleSearchKeyDown}
-                    aria-label="Search CSS animations, properties, and values"
-                    placeholder="Search animations"
-                    clearLabel="Clear CSS search"
-                    className="ss-cascade-header__search"
-                  />
-                )}
-              </div>
-              <CssAnimationsPanel
-                animations={animationsState.animations}
-                loading={animationsState.loading}
-                selectorSuggestions={selectorSuggestions}
-                variables={variables}
-                onChangeBody={animationsState.setBody}
-                onDelete={(s) => void animationsState.remove(s)}
-                onCreate={(n) => void animationsState.create(n)}
-                onRename={(s, n) => void animationsState.rename(s, n)}
-                searchTerm={searchTerm}
-                displayOrder={displayOrder}
-                collapseControl={collapseControl}
-                onClearSearch={() => changeSearch('')}
-              />
-            </>
+            <CssAnimationsPanel
+              animations={animationsState.animations}
+              loading={animationsState.loading}
+              selectorSuggestions={selectorSuggestions}
+              variables={variables}
+              onChangeBody={animationsState.setBody}
+              onDelete={(s) => void animationsState.remove(s)}
+              onCreate={(n) => void animationsState.create(n)}
+              onRename={(s, n) => void animationsState.rename(s, n)}
+              searchTerm={searchTerm}
+              displayOrder={displayOrder}
+              collapseControl={collapseControl}
+              onClearSearch={() => changeSearch('')}
+            />
           ) : !selection ? (
             <p className="ss-cascade-empty">Click an element to see the CSS that styles it.</p>
           ) : (
             <>
-              <div className="ss-cascade-header">
-                <div className="ss-cascade-header__main">
-                  {selectedTarget}
-
-                  {scope === 'style' && (
-                    <CascadeToolbar
-                      searchOpen={searchOpen}
-                      searchButtonRef={searchButtonRef}
-                      searchFieldId={searchFieldId}
-                      onSearchOpen={openSearch}
-                      onSearchToggle={toggleSearch}
-                      order={displayOrder}
-                      onOrderChange={setDisplayOrder}
-                      allCollapsed={allCollapsed}
-                      onCollapseAll={collapseAll}
-                      onExpandAll={expandAll}
-                    />
-                  )}
-                </div>
-
-                {scope === 'style' && searchOpen && (
-                  <SearchField
-                    id={searchFieldId}
-                    ref={searchInputRef}
-                    value={searchTerm}
-                    onChange={changeSearch}
-                    onKeyDown={handleSearchKeyDown}
-                    aria-label="Search CSS selectors, properties, and values"
-                    placeholder="Search CSS"
-                    clearLabel="Clear CSS search"
-                    className="ss-cascade-header__search"
-                  />
-                )}
-              </div>
-
               {scope === 'settings' ? (
                 <ElementSettingsPanel settings={settings} />
               ) : (

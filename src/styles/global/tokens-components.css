@@ -156,7 +156,7 @@
   --function-text: var(--color-red-400);
   --media-surface: var(--color-pink-600);
   --media-surface-hover: var(--color-pink-500);
-  --media-text: var(--color-pink-400);
+  --media-text: color-mix(in srgb, var(--color-pink-400) 40%, var(--text-inverse));
 
   --button-surface-default: var(--surface-control);
   --button-surface-hover: var(--surface-control-hover);
