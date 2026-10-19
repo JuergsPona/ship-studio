@@ -14,6 +14,48 @@ import { ContextMenuLabel } from '../primitives/ContextMenu';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { MenuButton } from '../primitives/MenuButton';
 
+const NON_TEXT_DISPLAY_TAGS = new Set([
+  'area',
+  'audio',
+  'base',
+  'br',
+  'canvas',
+  'col',
+  'colgroup',
+  'datalist',
+  'embed',
+  'frame',
+  'frameset',
+  'head',
+  'hr',
+  'iframe',
+  'img',
+  'input',
+  'link',
+  'map',
+  'meta',
+  'meter',
+  'object',
+  'optgroup',
+  'param',
+  'picture',
+  'progress',
+  'script',
+  'select',
+  'source',
+  'svg',
+  'style',
+  'template',
+  'title',
+  'track',
+  'video',
+  'wbr',
+]);
+
+function displaysText(tag: string): boolean {
+  return !NON_TEXT_DISPLAY_TAGS.has(tag.toLowerCase());
+}
+
 export function ElementSettingsPanel({ settings }: { settings: ElementSettings }) {
   const {
     tag,
@@ -35,6 +77,7 @@ export function ElementSettingsPanel({ settings }: { settings: ElementSettings }
     canEditText,
     setText,
   } = settings;
+  const showTextField = displaysText(tag);
   type TextEditState = {
     selectionKey: string;
     sourceText: string;
@@ -130,7 +173,7 @@ export function ElementSettingsPanel({ settings }: { settings: ElementSettings }
         id: 'elementSettings.focusText',
         title: 'Edit selected element text',
         category: 'action',
-        when: ({ kind }) => kind === 'project' && canEditText && !settings.busy,
+        when: ({ kind }) => kind === 'project' && showTextField && canEditText && !settings.busy,
         keywords: ['content', 'copy', 'headline', 'label'],
         run: () => textInputRef.current?.focus(),
       },
@@ -146,7 +189,7 @@ export function ElementSettingsPanel({ settings }: { settings: ElementSettings }
             ?.click(),
       },
     ],
-    [canEditTag, canEditText, settings.busy]
+    [canEditTag, canEditText, settings.busy, showTextField]
   );
 
   return (
@@ -237,46 +280,50 @@ export function ElementSettingsPanel({ settings }: { settings: ElementSettings }
         </div>
       </section>
 
-      <section className="ss-settings__group">
-        <h4 className="ss-settings__label">Text</h4>
-        <textarea
-          key={selectionKey}
-          ref={textInputRef}
-          className="ss-settings__text-input"
-          aria-label="Text content"
-          value={textDraft}
-          disabled={!canEditText || settings.busy}
-          placeholder={textReason === 'Resolving selected text…' ? 'Resolving source…' : undefined}
-          spellCheck
-          onFocus={() => {
-            textCancelledRef.current = false;
-            draftSelectionKeyRef.current = selectionKey;
-            setTextEditState({ ...currentTextEdit, original: sourceText, editing: true });
-          }}
-          onChange={(event) => {
-            setTextEditState({
-              ...currentTextEdit,
-              draft: event.target.value,
-              editing: true,
-            });
-          }}
-          onBlur={commitText}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              event.preventDefault();
-              cancelText();
-              event.currentTarget.blur();
-            } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              commitText();
+      {showTextField && (
+        <section className="ss-settings__group">
+          <h4 className="ss-settings__label">Text</h4>
+          <textarea
+            key={selectionKey}
+            ref={textInputRef}
+            className="ss-settings__text-input"
+            aria-label="Text content"
+            value={textDraft}
+            disabled={!canEditText || settings.busy}
+            placeholder={
+              textReason === 'Resolving selected text…' ? 'Resolving source…' : undefined
             }
-          }}
-        />
-        {textReason && <p className="ss-settings__text-reason">{textReason}</p>}
-        {canEditText && (
-          <p className="ss-settings__text-help">Cmd/Ctrl+Enter saves · Esc cancels</p>
-        )}
-      </section>
+            spellCheck
+            onFocus={() => {
+              textCancelledRef.current = false;
+              draftSelectionKeyRef.current = selectionKey;
+              setTextEditState({ ...currentTextEdit, original: sourceText, editing: true });
+            }}
+            onChange={(event) => {
+              setTextEditState({
+                ...currentTextEdit,
+                draft: event.target.value,
+                editing: true,
+              });
+            }}
+            onBlur={commitText}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                cancelText();
+                event.currentTarget.blur();
+              } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                commitText();
+              }
+            }}
+          />
+          {textReason && <p className="ss-settings__text-reason">{textReason}</p>}
+          {canEditText && (
+            <p className="ss-settings__text-help">Cmd/Ctrl+Enter saves · Esc cancels</p>
+          )}
+        </section>
+      )}
 
       <section className="ss-settings__group ss-settings__group--attributes">
         <h4 className="ss-settings__label">Attributes</h4>

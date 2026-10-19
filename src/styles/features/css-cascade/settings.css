@@ -285,7 +285,8 @@
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
-  padding: var(--space-02) 0;
+  margin-inline-start: calc(var(--space-02) * -1);
+  padding: var(--space-02);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
   font-size: var(--font-size-badge);
