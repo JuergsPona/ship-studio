@@ -339,6 +339,54 @@ export function CssCascadePanel({
     .join(' ');
   const selectedTagIcon =
     selection && showTagIcons ? getElementIcon(selection.signature.tagName) : undefined;
+  const selectedTarget = selection ? (
+    <div className={targetClassName}>
+      {selectedTagIcon ? (
+        <span className="ss-cascade-target__tag-icon" title={`<${selection.signature.tagName}>`}>
+          {selectedTagIcon}
+        </span>
+      ) : (
+        <span className="ss-cascade-target__tag" data-tone="tag">
+          {selection.signature.tagName}
+        </span>
+      )}
+      {selectedTagIcon && classes.length === 0 && (
+        <span className="ss-cascade-target__tag" data-tone="tag">
+          {selection.signature.tagName}
+        </span>
+      )}
+      <span className="ss-cascade-target__selector">
+        {classes.length > 0 && (
+          <span className="ss-cascade-target__classes">
+            {classes.map((c) => (
+              <span key={c} className="ss-cascade-target__class">
+                .{c}
+              </span>
+            ))}
+          </span>
+        )}
+        {selection.instanceCount > 1 && (
+          <span className="ss-cascade-target__count">×{selection.instanceCount}</span>
+        )}
+      </span>
+      <Tooltip
+        content={
+          <>
+            Copy ID &amp; Location: <code className="ss-tooltip__value">{copyIdValue}</code>
+          </>
+        }
+      >
+        <IconButton
+          className="ss-cascade-target__copy"
+          variant="ghost"
+          size="compact"
+          icon={idCopied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+          aria-label={idCopied ? 'Element ID copied' : 'Copy ID'}
+          onClick={() => void copyElementId(copyIdValue)}
+        />
+      </Tooltip>
+    </div>
+  ) : null;
   // The element's own classes lead the "Add selector" suggestions (so a class you
   // just added in Settings is one click away from getting a rule), then the rest of
   // the project's classes, then every existing rule selector (incl. `@keyframes …`)
@@ -622,6 +670,7 @@ export function CssCascadePanel({
             <>
               <div className="ss-cascade-header">
                 <div className="ss-cascade-header__main">
+                  {selectedTarget}
                   <CascadeToolbar
                     kind="animations"
                     searchOpen={searchOpen}
@@ -671,56 +720,7 @@ export function CssCascadePanel({
             <>
               <div className="ss-cascade-header">
                 <div className="ss-cascade-header__main">
-                  <div className={targetClassName}>
-                    {selectedTagIcon ? (
-                      <span
-                        className="ss-cascade-target__tag-icon"
-                        title={`<${selection.signature.tagName}>`}
-                      >
-                        {selectedTagIcon}
-                      </span>
-                    ) : (
-                      <span className="ss-cascade-target__tag" data-tone="tag">
-                        {selection.signature.tagName}
-                      </span>
-                    )}
-                    {selectedTagIcon && classes.length === 0 && (
-                      <span className="ss-cascade-target__tag" data-tone="tag">
-                        {selection.signature.tagName}
-                      </span>
-                    )}
-                    <span className="ss-cascade-target__selector">
-                      {classes.length > 0 && (
-                        <span className="ss-cascade-target__classes">
-                          {classes.map((c) => (
-                            <span key={c} className="ss-cascade-target__class">
-                              .{c}
-                            </span>
-                          ))}
-                        </span>
-                      )}
-                      {selection.instanceCount > 1 && (
-                        <span className="ss-cascade-target__count">×{selection.instanceCount}</span>
-                      )}
-                    </span>
-                    <Tooltip
-                      content={
-                        <>
-                          Copy ID &amp; Location:{' '}
-                          <code className="ss-tooltip__value">{copyIdValue}</code>
-                        </>
-                      }
-                    >
-                      <IconButton
-                        className="ss-cascade-target__copy"
-                        variant="ghost"
-                        size="compact"
-                        icon={idCopied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-                        aria-label={idCopied ? 'Element ID copied' : 'Copy ID'}
-                        onClick={() => void copyElementId(copyIdValue)}
-                      />
-                    </Tooltip>
-                  </div>
+                  {selectedTarget}
 
                   {scope === 'style' && (
                     <CascadeToolbar
