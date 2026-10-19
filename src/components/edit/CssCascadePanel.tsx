@@ -248,23 +248,35 @@ export function CssCascadePanel({
     }
     return [...keys];
   }, [bodies, draftMediaQueries, rows]);
+  const animationCollapseKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const animation of animationsState.animations) {
+      const ruleKey = cascadeRuleCollapseKey(animation.selector);
+      keys.add(ruleKey);
+      collectNestedCollapseKeys(animation.body, ruleKey).forEach((nestedKey) =>
+        keys.add(nestedKey)
+      );
+    }
+    return [...keys];
+  }, [animationsState.animations]);
+  const activeCollapseKeys = scope === 'animations' ? animationCollapseKeys : allCollapseKeys;
   const collapseAll = useCallback(() => {
     if (searchActive) {
-      setSearchCollapsedOverrides(new Map(allCollapseKeys.map((key) => [key, true])));
+      setSearchCollapsedOverrides(new Map(activeCollapseKeys.map((key) => [key, true])));
       return;
     }
-    setCollapsedRules(new Set(allCollapseKeys));
-  }, [allCollapseKeys, searchActive]);
+    setCollapsedRules(new Set(activeCollapseKeys));
+  }, [activeCollapseKeys, searchActive]);
   const expandAll = useCallback(() => {
     if (searchActive) {
-      setSearchCollapsedOverrides(new Map(allCollapseKeys.map((key) => [key, false])));
+      setSearchCollapsedOverrides(new Map(activeCollapseKeys.map((key) => [key, false])));
       return;
     }
     setCollapsedRules(new Set());
-  }, [allCollapseKeys, searchActive]);
+  }, [activeCollapseKeys, searchActive]);
   const allCollapsed =
-    allCollapseKeys.length > 0 &&
-    allCollapseKeys.every((key) =>
+    activeCollapseKeys.length > 0 &&
+    activeCollapseKeys.every((key) =>
       searchActive ? searchCollapsedOverrides.get(key) === true : collapsedRules.has(key)
     );
   const collapseControl = useMemo(
@@ -607,16 +619,52 @@ export function CssCascadePanel({
         </Tabs>
         <div className="ss-cascade-content">
           {scope === 'animations' ? (
-            <CssAnimationsPanel
-              animations={animationsState.animations}
-              loading={animationsState.loading}
-              selectorSuggestions={selectorSuggestions}
-              variables={variables}
-              onChangeBody={animationsState.setBody}
-              onDelete={(s) => void animationsState.remove(s)}
-              onCreate={(n) => void animationsState.create(n)}
-              onRename={(s, n) => void animationsState.rename(s, n)}
-            />
+            <>
+              <div className="ss-cascade-header">
+                <div className="ss-cascade-header__main">
+                  <CascadeToolbar
+                    kind="animations"
+                    searchOpen={searchOpen}
+                    searchButtonRef={searchButtonRef}
+                    searchFieldId={searchFieldId}
+                    onSearchOpen={openSearch}
+                    onSearchToggle={toggleSearch}
+                    order={displayOrder}
+                    onOrderChange={setDisplayOrder}
+                    allCollapsed={allCollapsed}
+                    onCollapseAll={collapseAll}
+                    onExpandAll={expandAll}
+                  />
+                </div>
+                {searchOpen && (
+                  <SearchField
+                    id={searchFieldId}
+                    ref={searchInputRef}
+                    value={searchTerm}
+                    onChange={changeSearch}
+                    onKeyDown={handleSearchKeyDown}
+                    aria-label="Search CSS animations, properties, and values"
+                    placeholder="Search animations"
+                    clearLabel="Clear CSS search"
+                    className="ss-cascade-header__search"
+                  />
+                )}
+              </div>
+              <CssAnimationsPanel
+                animations={animationsState.animations}
+                loading={animationsState.loading}
+                selectorSuggestions={selectorSuggestions}
+                variables={variables}
+                onChangeBody={animationsState.setBody}
+                onDelete={(s) => void animationsState.remove(s)}
+                onCreate={(n) => void animationsState.create(n)}
+                onRename={(s, n) => void animationsState.rename(s, n)}
+                searchTerm={searchTerm}
+                displayOrder={displayOrder}
+                collapseControl={collapseControl}
+                onClearSearch={() => changeSearch('')}
+              />
+            </>
           ) : !selection ? (
             <p className="ss-cascade-empty">Click an element to see the CSS that styles it.</p>
           ) : (
