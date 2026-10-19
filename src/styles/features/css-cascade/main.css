@@ -328,12 +328,6 @@
   min-width: 0;
 }
 
-.ss-media-query-group__collapse {
-  align-self: start;
-  block-size: calc(var(--font-size-11) + var(--space-06) + var(--space-06));
-  margin-block-start: calc(var(--spacing-sm) + var(--stroke-1));
-}
-
 .ss-media-query-group__source-row {
   position: relative;
   display: flex;
@@ -560,6 +554,14 @@
 }
 .ss-cascade-card__collapse:hover {
   color: var(--text-secondary);
+}
+
+/* `all: unset` on the shared collapse control resets its box sizing. Restore the
+   first-row alignment with a more specific media-query rule after that reset. */
+.ss-media-query-group .ss-media-query-group__collapse {
+  align-self: start;
+  block-size: calc(var(--font-size-11) + var(--space-06) + var(--space-06));
+  margin-block-start: calc(var(--spacing-sm) + var(--stroke-1));
 }
 
 /* Main class tag */
