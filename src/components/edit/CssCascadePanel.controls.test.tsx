@@ -249,7 +249,7 @@ describe('CssCascadePanel controls', () => {
       ':scope > .ss-cascade-action [data-cascade-add-selector]'
     );
     if (!topAddButton) throw new Error('Expected the top Add selector button');
-    expect(topAddButton).toHaveClass('ss-cascade-card__add');
+    expect(topAddButton).toHaveClass('button--fill');
     expect(
       toolbar.compareDocumentPosition(topAddButton) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
@@ -273,7 +273,7 @@ describe('CssCascadePanel controls', () => {
       ':scope > .ss-cascade-action:last-child [data-cascade-add-selector]'
     );
     if (!bottomAddButton) throw new Error('Expected the bottom Add selector button');
-    expect(bottomAddButton).toHaveClass('ss-cascade-card__add');
+    expect(bottomAddButton).toHaveClass('button--fill');
     expect(
       toolbar.compareDocumentPosition(bottomAddButton) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();

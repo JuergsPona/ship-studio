@@ -24,6 +24,7 @@ import { CopyIcon } from '@/components/icons';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { Spinner } from '../primitives/Spinner';
+import { Button } from '../primitives/Button';
 import { TextButton } from '../primitives/TextButton';
 import { IconButton } from '../primitives/IconButton';
 import { SearchField } from '../primitives/SearchField';
@@ -947,15 +948,28 @@ export function AddSelectorBar({
 
   const action = (
     <div className={`ss-cascade-action${fixedCondition ? ' ss-cascade-action--nested' : ''}`}>
-      <TextButton
-        className={`ss-cascade-card__add${open ? ' is-open' : ''}`}
-        leftIcon={<PlusIcon size={12} />}
-        aria-expanded={open}
-        data-cascade-add-selector
-        onClick={() => setOpen(true)}
-      >
-        Add selector
-      </TextButton>
+      {fixedCondition ? (
+        <TextButton
+          className={`ss-cascade-card__add${open ? ' is-open' : ''}`}
+          leftIcon={<PlusIcon size={12} />}
+          aria-expanded={open}
+          data-cascade-add-selector
+          onClick={() => setOpen(true)}
+        >
+          Add selector
+        </TextButton>
+      ) : (
+        <Button
+          variant="default"
+          width="fill"
+          leftIcon={<PlusIcon size={11} />}
+          aria-expanded={open}
+          data-cascade-add-selector
+          onClick={() => setOpen(true)}
+        >
+          Add selector
+        </Button>
+      )}
     </div>
   );
 
