@@ -20,7 +20,7 @@ Ship Studio is a desktop app for web developers that provides:
 - **Command Palette** - Cmd+K palette; every user-facing feature registers its actions here (see "New feature → contribute commands")
 - **IDE Integration** - Open projects in VS Code or Cursor with one click
 - **Hosting Status** - After a push, see whether *that commit* deployed on Vercel, Cloudflare Pages or Netlify, with the build error when it didn't (see "Hosting Flow")
-- **Remote Access** - Drive Ship Studio from any MCP-capable AI assistant (Grok, Claude, ChatGPT, Cursor…) on your phone: continue agent conversations, start and close agents, get progress as HD screenshots, push behind a PIN. Your own Mac does the work over your own Tailscale Funnel, so it has to stay on — see "Remote Access Flow"
+- **Remote Access** - Drive Ship Studio from any MCP-capable AI assistant (Grok, Claude, ChatGPT, Cursor…) on your phone: continue agent conversations, start and close agents, switch projects and create new ones, get progress as HD screenshots, push behind a PIN. Your own Mac does the work over your own Tailscale Funnel, so it has to stay on — see "Remote Access Flow"
 - **Auto-Updates** - Automatic update detection and installation
 
 ## Core Principles

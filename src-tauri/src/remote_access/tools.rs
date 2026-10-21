@@ -53,6 +53,31 @@ const TOOLS: &[ToolDef] = &[
         schema: || json!({ "type": "object", "properties": {} }),
     },
     ToolDef {
+        name: "create_project",
+        description: "Create a brand-new project in Ship Studio from one of its starter templates, share it for remote access, and open it. Takes a minute or two (download, then installing packages). Then use message_agent on it to have the agent build what the user wants.",
+        schema: || json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Project name, e.g. \"bakery-site\". Lowercase letters, digits and dashes are kept; anything else becomes a dash." },
+                "template": {
+                    "type": "string",
+                    "enum": NEW_PROJECT_TEMPLATES.iter().map(|t| t.id).collect::<Vec<_>>(),
+                    "description": "Starter to use (default nextjs-basic): nextjs-basic = Next.js with Tailwind; nextjs-plain-css = Next.js with plain CSS; astro-basic = Astro with Tailwind; astro-html = Astro with plain CSS; sveltekit-basic = SvelteKit; html-basic = plain HTML/CSS/JS; blank = an empty folder."
+                }
+            },
+            "required": ["name"]
+        }),
+    },
+    ToolDef {
+        name: "open_project",
+        description: "Switch Ship Studio on the computer to one of the shared projects, so its workspace, agents and preview are the ones showing. Screenshot and agent tools already do this themselves when they need to — call it when the user asks to switch, or to warm up a project's preview before showing it.",
+        schema: || json!({
+            "type": "object",
+            "properties": { "project": project_prop() },
+            "required": ["project"]
+        }),
+    },
+    ToolDef {
         name: "read_agent",
         description: "What an agent tab is showing right now, as plain text (the bottom of its screen plus scrollback). Use wait_seconds after sending a message to wait until the agent has been quiet for 5 seconds — a sign it finished or needs input.",
         schema: || json!({
@@ -192,11 +217,15 @@ pub async fn call(app: &tauri::AppHandle, config: &RemoteConfig, name: &str, arg
     if name == "list_projects" {
         return list_projects(config).await;
     }
+    if name == "create_project" {
+        return create_project(app, &args).await;
+    }
     let project = match resolve_project(config, args.get("project").and_then(Value::as_str)) {
         Ok(p) => p,
         Err(e) => return error(e),
     };
     match name {
+        "open_project" => open_project(app, &project).await,
         "read_agent" => read_agent(&project, &args).await,
         "message_agent" => message_agent(app, &project, &args).await,
         "close_agent" => close_agent(app, &project, &args).await,
@@ -865,31 +894,110 @@ struct Captured {
     link: Option<String>,
 }
 
+/// How long a screenshot waits for the project's workspace to open.
+const OPEN_PREVIEW_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long it then waits for the dev server behind the preview to be ready.
+/// A cold `next dev` can take most of a minute.
+const DEV_SERVER_TIMEOUT: Duration = Duration::from_secs(90);
+
+fn canonical_path(project: &str) -> String {
+    dunce::canonicalize(project)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| project.to_string())
+}
+
+/// Make sure `project`'s preview is up, switching Ship Studio to it if
+/// another project is showing — the same thing start_agent does. Asking the
+/// user to "switch over" would be asking someone who isn't there.
+async fn ensure_preview(app: &tauri::AppHandle, project: &str) -> Result<(), String> {
+    let canonical = canonical_path(project);
+    if crate::agent_bridge::is_project_attached(&canonical) {
+        return Ok(());
+    }
+    app.emit_to(
+        &window_for(project),
+        "remote-show-project",
+        json!({ "projectPath": project }),
+    )
+    .map_err(|e| format!("Couldn't reach the Ship Studio window: {e}"))?;
+    let deadline = tokio::time::Instant::now() + OPEN_PREVIEW_TIMEOUT;
+    while tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        if crate::agent_bridge::is_project_attached(&canonical) {
+            return Ok(());
+        }
+    }
+    Err(format!(
+        "Ship Studio didn't open {}'s preview within {} seconds. The window may be stuck on a dialog, or it may be a native mobile project, which has no web preview.",
+        project_name(project),
+        OPEN_PREVIEW_TIMEOUT.as_secs()
+    ))
+}
+
+async fn open_project(app: &tauri::AppHandle, project: &str) -> Value {
+    match ensure_preview(app, project).await {
+        Ok(()) => text(format!(
+            "Ship Studio is showing {} now. Its dev server may still be starting; preview_screenshot waits for it.",
+            project_name(project)
+        )),
+        Err(e) => error(e),
+    }
+}
+
+/// The preview's answer while its dev server is still coming up — worth
+/// waiting out rather than reporting.
+fn is_still_starting(message: &str) -> bool {
+    message.contains("not running yet") || message.contains("not ready yet")
+}
+
 /// Capture the preview as `device` at high DPI, through the same preview the
-/// agent bridge drives, and store it behind its own image link.
+/// agent bridge drives, and store it behind its own image link. Opens the
+/// project and waits for its dev server first if it has to.
 async fn capture(
     app: &tauri::AppHandle,
     project: &str,
     device: shots::Device,
     full_page: bool,
 ) -> Result<Captured, String> {
-    let canonical = dunce::canonicalize(project)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| project.to_string());
+    ensure_preview(app, project).await?;
+    let canonical = canonical_path(project);
     let (width, height, scale) = device.viewport();
-    let result = crate::agent_bridge::call_preview_tool(
-        app.clone(),
-        &canonical,
-        "preview_screenshot",
-        json!({ "full_page": full_page, "width": width, "height": height, "scale": scale, "inline": false }),
-    )
-    .await;
-    if result.get("isError").and_then(Value::as_bool) == Some(true) {
-        return Err(result
+    let deadline = tokio::time::Instant::now() + DEV_SERVER_TIMEOUT;
+    let mut waited = false;
+    let result = loop {
+        let result = crate::agent_bridge::call_preview_tool(
+            app.clone(),
+            &canonical,
+            "preview_screenshot",
+            json!({ "full_page": full_page, "width": width, "height": height, "scale": scale, "inline": false }),
+        )
+        .await;
+        if result.get("isError").and_then(Value::as_bool) != Some(true) {
+            break result;
+        }
+        let message = result
             .pointer("/content/0/text")
             .and_then(Value::as_str)
             .unwrap_or("The screenshot failed.")
-            .to_string());
+            .to_string();
+        if !is_still_starting(&message) || tokio::time::Instant::now() >= deadline {
+            return Err(if waited {
+                format!(
+                    "{}'s dev server didn't come up within {} seconds: {message}",
+                    project_name(project),
+                    DEV_SERVER_TIMEOUT.as_secs()
+                )
+            } else {
+                message
+            });
+        }
+        waited = true;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    };
+    if waited {
+        // The server just came up; give the page a beat to finish its first
+        // load before it's photographed.
+        tokio::time::sleep(Duration::from_millis(1500)).await;
     }
     let path = result
         .pointer("/_meta/savedPath")
@@ -967,9 +1075,8 @@ async fn navigate(app: &tauri::AppHandle, project: &str, page: &str) -> Result<(
     if !page.starts_with('/') || page.starts_with("//") || page.chars().any(char::is_control) {
         return Err("page must be a path within the site, like /pricing.".into());
     }
-    let canonical = dunce::canonicalize(project)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| project.to_string());
+    ensure_preview(app, project).await?;
+    let canonical = canonical_path(project);
     let result = crate::agent_bridge::call_preview_tool(
         app.clone(),
         &canonical,
@@ -1056,6 +1163,230 @@ async fn show_progress(app: &tauri::AppHandle, project: &str, args: &Value) -> V
     );
     content.push(json!({ "type": "text", "text": text_parts.join("\n\n") }));
     json!({ "content": content })
+}
+
+// ============================================================================
+// New projects
+// ============================================================================
+
+struct NewProjectTemplate {
+    id: &'static str,
+    /// Public repo cloned anonymously; empty for an empty folder.
+    repo: &'static str,
+    install: bool,
+}
+
+/// The web starters from the New Project picker (`TEMPLATES` in
+/// src/hooks/useProjectCreation.ts — keep the two in step). Mobile and
+/// Shopify starters need setup at the desk, so they aren't offered here.
+const NEW_PROJECT_TEMPLATES: &[NewProjectTemplate] = &[
+    NewProjectTemplate {
+        id: "nextjs-basic",
+        repo: "https://github.com/ship-studio/static-marketing-site-starter",
+        install: true,
+    },
+    NewProjectTemplate {
+        id: "nextjs-plain-css",
+        repo: "https://github.com/ship-studio/nextjs-plain-css-starter",
+        install: true,
+    },
+    NewProjectTemplate {
+        id: "astro-basic",
+        repo: "https://github.com/ship-studio/astro-static-marketing-site-starter",
+        install: true,
+    },
+    NewProjectTemplate {
+        id: "astro-html",
+        repo: "https://github.com/ship-studio/astro-html-starter",
+        install: true,
+    },
+    NewProjectTemplate {
+        id: "sveltekit-basic",
+        repo: "https://github.com/ship-studio/sveltekit-static-marketing-site-starter",
+        install: true,
+    },
+    NewProjectTemplate {
+        id: "html-basic",
+        repo: "https://github.com/ship-studio/html-starter",
+        install: false,
+    },
+    NewProjectTemplate {
+        id: "blank",
+        repo: "",
+        install: false,
+    },
+];
+
+/// How long create_project waits for `npm install` before answering; the
+/// install carries on either way and the project opens when it's done.
+const INSTALL_WAIT: Duration = Duration::from_secs(45);
+
+/// The folder name the New Project form would make of `name`.
+fn safe_project_name(name: &str) -> String {
+    let lowered: String = name
+        .to_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    lowered
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+async fn create_project(app: &tauri::AppHandle, args: &Value) -> Value {
+    let name = safe_project_name(args.get("name").and_then(Value::as_str).unwrap_or(""));
+    if name.is_empty() {
+        return error("Give the project a name, like \"bakery-site\".");
+    }
+    let wanted = args
+        .get("template")
+        .and_then(Value::as_str)
+        .unwrap_or("nextjs-basic");
+    let Some(template) = NEW_PROJECT_TEMPLATES.iter().find(|t| t.id == wanted) else {
+        return error(format!(
+            "No starter called \"{wanted}\". Choose one of: {}",
+            NEW_PROJECT_TEMPLATES
+                .iter()
+                .map(|t| t.id)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    };
+    let path = match scaffold(&name, template).await {
+        Ok(p) => p,
+        Err(e) => return error(e),
+    };
+    let path_str = path.to_string_lossy().replace('\\', "/");
+
+    // The user asked for it from here, so it's shared from the start.
+    if let Err(e) = super::update_config(|c| {
+        if !c.projects.iter().any(|p| same_path(p, &path_str)) {
+            c.projects.push(path_str.clone());
+        }
+    }) {
+        return error(format!(
+            "Created {name}, but couldn't share it for remote access: {e}"
+        ));
+    }
+
+    // Install, then open. Opening first would start the dev server against a
+    // project with no node_modules.
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+    let (app_bg, project_bg) = (app.clone(), path_str.clone());
+    let install = template.install;
+    tauri::async_runtime::spawn(async move {
+        let result = if install {
+            npm_install(&project_bg).await
+        } else {
+            Ok(())
+        };
+        if let Err(e) = &result {
+            tracing::warn!("[Remote] npm install failed in a new project: {}", e);
+        }
+        let _ = app_bg.emit_to(
+            &window_for(&project_bg),
+            "remote-show-project",
+            json!({ "projectPath": project_bg }),
+        );
+        let _ = done_tx.send(result);
+    });
+    match tokio::time::timeout(INSTALL_WAIT, done_rx).await {
+        Ok(Ok(Ok(()))) => text(format!(
+            "Created {name} from the {} starter, shared it for remote access, and opened it in Ship Studio. Its dev server is starting. Use message_agent with project \"{name}\" to have the agent build what the user wants, then show_progress.",
+            template.id
+        )),
+        Ok(Ok(Err(e))) => text(format!(
+            "Created {name} and opened it, but installing its packages failed: {e}\nAsk the agent in it (message_agent, project \"{name}\") to run the install and fix what it reports."
+        )),
+        _ => text(format!(
+            "Created {name} and shared it for remote access. Its packages are still installing; Ship Studio opens it when they're done. Give it a minute, then use message_agent with project \"{name}\"."
+        )),
+    }
+}
+
+/// Clone the starter (or make an empty folder) into the projects folder and
+/// detach it from the starter's history — the New Project form's steps.
+async fn scaffold(name: &str, template: &NewProjectTemplate) -> Result<std::path::PathBuf, String> {
+    let root = crate::utils::projects_root()?;
+    std::fs::create_dir_all(&root)
+        .map_err(|e| format!("Couldn't create the projects folder: {e}"))?;
+    let path = root.join(name);
+    if path.exists() {
+        return Err(format!("A project called \"{name}\" already exists. Pick another name, or use it with open_project if it's shared."));
+    }
+    let path_str = path.to_string_lossy().to_string();
+    if template.repo.is_empty() {
+        crate::commands::projects::create_blank_project(path_str.clone())
+            .await
+            .map_err(|e| e.to_string())?;
+        return Ok(path);
+    }
+    let mut cmd = crate::utils::git_command().map_err(|e| e.to_string())?;
+    cmd.current_dir(&root)
+        .args(["clone", "--depth", "1", template.repo, name]);
+    let output = crate::external_command::run_with_timeout(
+        tokio::process::Command::from(cmd),
+        "git clone",
+        180,
+    )
+    .await
+    .map_err(|e| e.to_string());
+    let failed = match &output {
+        Ok(o) if o.status.success() => None,
+        Ok(o) => Some(String::from_utf8_lossy(&o.stderr).trim().to_string()),
+        Err(e) => Some(e.clone()),
+    };
+    if let Some(reason) = failed {
+        let _ = std::fs::remove_dir_all(&path);
+        return Err(format!(
+            "Couldn't download the starter (is the computer online?): {reason}"
+        ));
+    }
+    crate::commands::projects::remove_git_history(path_str.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    crate::commands::projects::ensure_gitignore_has_shipstudio(path_str)
+        .await
+        .map_err(|e| e.to_string())?;
+    if let Ok(account) = crate::commands::accounts::get_active_account_id() {
+        if account != "default" {
+            // Same as a project made at the desk: it belongs to the workspace
+            // that's active. The folder is already in that workspace's root.
+            let _ = crate::commands::projects::move_project_to_account(
+                path.to_string_lossy().to_string(),
+                account,
+            )
+            .await;
+        }
+    }
+    Ok(path)
+}
+
+async fn npm_install(project: &str) -> Result<(), String> {
+    let npm = crate::commands::claude::find_binary_by_name("npm")
+        .ok_or("npm isn't installed on the computer.")?;
+    let mut cmd = tokio::process::Command::new(npm);
+    cmd.arg("install")
+        .current_dir(project)
+        .env("PATH", crate::utils::get_extended_path())
+        .stdin(std::process::Stdio::null());
+    let output = crate::external_command::run_with_timeout(cmd, "npm install", 600)
+        .await
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(cap_lines(&stderr, 8))
+    }
 }
 
 // ============================================================================
@@ -1473,6 +1804,31 @@ mod tests {
         assert!(check_message_kind("/compact keep the header work").is_ok());
         assert!(check_message_kind("please fix the header!").is_ok());
         assert!(check_message_kind("use the /about page").is_ok());
+    }
+
+    #[test]
+    fn new_project_names_match_the_new_project_form() {
+        assert_eq!(safe_project_name("Bakery Site!"), "bakery-site");
+        assert_eq!(safe_project_name("--My__App--"), "my-app");
+        assert_eq!(safe_project_name("../../etc"), "etc");
+        assert_eq!(safe_project_name("¿¿"), "");
+    }
+
+    #[test]
+    fn new_project_starters_match_the_picker() {
+        // The picker's list lives in TypeScript; a starter renamed or moved
+        // there must not leave this one cloning a dead repo.
+        let picker = include_str!("../../../src/hooks/useProjectCreation.ts");
+        for t in NEW_PROJECT_TEMPLATES {
+            assert!(
+                picker.contains(&format!("id: '{}'", t.id)),
+                "{} not in the picker",
+                t.id
+            );
+            if !t.repo.is_empty() {
+                assert!(picker.contains(t.repo), "{} not in the picker", t.repo);
+            }
+        }
     }
 
     #[test]

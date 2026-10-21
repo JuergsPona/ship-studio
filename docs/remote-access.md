@@ -196,9 +196,27 @@ Grok Bot ──HTTPS──▶ Tailscale ──▶ tailscaled Funnel (/shipstudio
 
 ## Tools
 
-`computer_status`, `list_projects`, `message_agent`, `read_agent`, `press_key`,
-`start_agent`, `close_agent`, `show_progress`, `preview_screenshot`,
-`git_status`, `prepare_push`, `confirm_push`.
+`computer_status`, `list_projects`, `create_project`, `open_project`,
+`message_agent`, `read_agent`, `press_key`, `start_agent`, `close_agent`,
+`show_progress`, `preview_screenshot`, `git_status`, `prepare_push`,
+`confirm_push`.
+
+- **Nobody is at the desk to switch projects.** A screenshot of a shared
+  project that isn't showing used to fail with "switch Ship Studio over to the
+  project" — advice for someone who isn't there. Screenshots now emit
+  `remote-show-project` (`useRemoteAgentControl` → the same open as a click),
+  wait for the preview to attach to the agent bridge, and wait out a dev
+  server that is still starting (up to 90 s). `open_project` does the switch
+  on its own.
+- **`create_project`** scaffolds a web starter the way the New Project form
+  does (clone with `--depth 1`, drop the starter's history, gitignore
+  `.shipstudio/`, tag the active workspace, `npm install`), then opens it. It
+  is shared for remote access automatically, because the user asked for it
+  from there. It does *not* widen access to existing projects: those still
+  have to be ticked at the desk. The starter list is a fixed allowlist
+  mirrored from `TEMPLATES` (a test keeps the two in step); mobile and Shopify
+  starters need desk setup and aren't offered. It answers after at most 45 s
+  of install; a longer install carries on and opens the project when done.
 
 - **`message_agent` is the default.** A real session started a fresh agent for
   most requests when the tools were "send" and "start" — once because the
