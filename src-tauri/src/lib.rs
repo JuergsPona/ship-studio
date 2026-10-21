@@ -837,6 +837,7 @@ pub fn run() {
             commands::remote_access::republish_remote_link,
             commands::remote_access::set_lid_closed_mode,
             commands::remote_access::set_open_at_login,
+            commands::agent_bridge::agent_bridge_respond_chunk,
             // Project Type Detection
             commands::projects::detect_project_type_command,
             commands::projects::project_path_exists,
