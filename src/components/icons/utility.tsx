@@ -4,13 +4,17 @@ import PlusSvg from '../../assets/icons/plus.svg?react';
 import PullSvg from '../../assets/icons/pull.svg?react';
 import PushSvg from '../../assets/icons/push.svg?react';
 import BranchSvg from '../../assets/icons/git-branch.svg?react';
+import GitCommitSvg from '../../assets/icons/git-commit.svg?react';
+import GitMergeSvg from '../../assets/icons/git-merge.svg?react';
 import BranchEndSvg from '../../assets/icons/git-branch-end.svg?react';
 import BranchHorizontalSvg from '../../assets/icons/git-branch-horizontal.svg?react';
 import BranchMainSvg from '../../assets/icons/git-branch-main.svg?react';
 import BranchMainNoneSvg from '../../assets/icons/git-branch-main-none.svg?react';
 import BranchMidSvg from '../../assets/icons/git-branch-mid.svg?react';
 import PullRequestSvg from '../../assets/icons/git-pull-request.svg?react';
+import BugReportSvg from '../../assets/icons/bug.svg?react';
 import SettingsSvg from '../../assets/icons/settings.svg?react';
+import SettingsSlidersSvg from '../../assets/icons/settings-sliders.svg?react';
 import GlobeSvg from '../../assets/icons/globe.svg?react';
 import AiSvg from '../../assets/icons/ai.svg?react';
 import HelpAlertSvg from '../../assets/icons/help-alert.svg?react';
@@ -19,7 +23,7 @@ import RedoSvg from '../../assets/icons/redo.svg?react';
 import LayersSvg from '../../assets/icons/layers.svg?react';
 import TemplateSvg from '../../assets/icons/template.svg?react';
 import GenericAgentSvg from '../../assets/icons/old-icons/generic-agent.svg?react';
-import CollaboratorsSvg from '../../assets/icons/old-icons/collaborators.svg?react';
+import CollaboratorsSvg from '../../assets/icons/collaborators.svg?react';
 import PackageSvg from '../../assets/icons/old-icons/package.svg?react';
 import PlaySvg from '../../assets/icons/old-icons/play.svg?react';
 import PauseSvg from '../../assets/icons/old-icons/pause.svg?react';
@@ -72,6 +76,21 @@ export const BranchIcon = createIcon(BranchSvg, {
   compact: true,
   strokeWidth: '1px',
 });
+export const GitCommitIcon = createIcon(GitCommitSvg, {
+  name: 'GitCommitIcon',
+  source: 'icons/git-commit.svg',
+  kind: 'ui',
+  defaultSize: 14,
+  compact: true,
+  strokeWidth: '1px',
+});
+export const GitMergeIcon = createIcon(GitMergeSvg, {
+  name: 'GitMergeIcon',
+  source: 'icons/git-merge.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
 export const GitBranchEndIcon = createIcon(BranchEndSvg, {
   name: 'GitBranchEndIcon',
   source: 'icons/git-branch-end.svg',
@@ -120,11 +139,25 @@ export const PullRequestIcon = createIcon(PullRequestSvg, {
   compact: true,
   strokeWidth: '1px',
 });
+export const BugReportIcon = createIcon(BugReportSvg, {
+  name: 'BugReportIcon',
+  source: 'icons/bug.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
 export const SettingsIcon = createIcon(SettingsSvg, {
   name: 'SettingsIcon',
   source: 'icons/settings.svg',
   kind: 'ui',
   defaultSize: 18,
+  strokeWidth: '1px',
+});
+export const SettingsSlidersIcon = createIcon(SettingsSlidersSvg, {
+  name: 'SettingsSlidersIcon',
+  source: 'icons/settings-sliders.svg',
+  kind: 'ui',
+  defaultSize: 16,
   strokeWidth: '1px',
 });
 export const GlobeIcon = createIcon(GlobeSvg, {
@@ -191,7 +224,7 @@ export const GenericAgentIcon = createIcon(GenericAgentSvg, {
 });
 export const CollaboratorsIcon = createIcon(CollaboratorsSvg, {
   name: 'CollaboratorsIcon',
-  source: 'icons/old-icons/collaborators.svg',
+  source: 'icons/collaborators.svg',
   kind: 'ui',
   defaultSize: 16,
 });

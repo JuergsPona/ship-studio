@@ -65,6 +65,7 @@ import {
 import { useAppCommands } from './commands/useAppCommands';
 import { useWorkflowCommands } from './commands/useWorkflowCommands';
 import { useProjectNumberShortcuts } from './hooks/useProjectNumberShortcuts';
+import { PinnedProjectCommandHost } from './commands/usePinnedProjectCommands';
 import { useWorkspaceNumberShortcuts } from './hooks/useWorkspaceNumberShortcuts';
 import { TooltipProvider } from './components/primitives/Tooltip';
 import { DevDesignSystemTools } from './components/design-system/DevDesignSystemTools';
@@ -77,6 +78,8 @@ import {
   unreadCount,
 } from './lib/workflowsStore';
 import { useCompactWorkspaceToolbar } from './hooks/useCompactWorkspaceToolbar';
+import { useKeepDevServersRunning } from './hooks/useKeepDevServersRunning';
+import { useDevServerRetention } from './hooks/useDevServerRetention';
 import { installAppLifecycleTracking, quitAppWithTracking } from './lib/appLifecycle';
 import type { AppView } from './lib/types';
 import './styles/index.css';
@@ -129,6 +132,7 @@ function App({ initialProjectPath }: AppProps) {
 
 function AppContents({ initialProjectPath }: AppProps) {
   const [view, setView] = useState<AppView>('loading');
+  const keepDevServersRunning = useKeepDevServersRunning();
   const { openAccountSelect, accountSelectProps } = useAccountSelectNavigation(view, setView);
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
@@ -238,7 +242,6 @@ function AppContents({ initialProjectPath }: AppProps) {
 
   // Dev server and health check management
   const {
-    devServerRef,
     healthPanelRef,
     devServerPort,
     knownDevServerPort,
@@ -254,9 +257,13 @@ function AppContents({ initialProjectPath }: AppProps) {
     handleHealthOutput,
     handleRestartDevServer: restartDevServer,
     startServerForProject,
+    serverLifecycleVersion,
     stopServer,
+    stopAllServersExcept,
     stopAllServers,
     isServerRunning,
+    isServerStarting,
+    getProjectDevServerSnapshot,
     saveCustomDevCommand,
     needsInstall,
     devServerUnexpectedExit,
@@ -470,6 +477,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     setDevServerPort,
     startServerForProject,
     isServerRunning,
+    isServerStarting,
     restartDevServer,
     clearNeedsInstall,
     pasteToActiveTerminal,
@@ -490,6 +498,17 @@ function AppContents({ initialProjectPath }: AppProps) {
     fetchBranchInfo,
     clearBranchState,
     checkPluginSuggestion,
+  });
+
+  useDevServerRetention({
+    keepDevServersRunning,
+    view,
+    workspaceTab,
+    isPreviewHidden,
+    currentProjectPath: currentProject?.path ?? null,
+    serverLifecycleVersion,
+    stopAllServersExcept,
+    startCurrentDevServer: handleStartDevServer,
   });
 
   // Save port handler: persist, update state, close modal, restart dev server
@@ -513,19 +532,22 @@ function AppContents({ initialProjectPath }: AppProps) {
     [currentProject, restartDevServer, showToast, setDevServerPort]
   );
 
-  // Register palette commands with real handlers — see src/commands/useAppCommands.tsx
-  // `pinnedPaths` is passed after the rail hook runs; done below.
-
-  const { pinnedProjects, handleTogglePin, handleRailClick, handleRailUnpin } = useProjectRail({
+  const {
+    pinnedProjects,
+    handleTogglePin,
+    handleRailClick,
+    handleRailUnpin,
+    handleReorderProjects,
+  } = useProjectRail({
     currentProjectPath: currentProject?.path ?? null,
     handleSelectProject,
     showToast,
   });
 
-  const pinnedPaths = useMemo(
-    () => pinnedProjects.rows.map((r) => r.projectPath),
-    [pinnedProjects.rows]
-  );
+  // The rail can show an optimistic reorder while its persistence request is
+  // in flight. Global navigation must use the last canonical order instead,
+  // so Cmd+number and palette actions never switch to an unconfirmed slot.
+  const confirmedPinnedPaths = pinnedProjects.confirmedPaths;
   const refreshPinnedProjects = pinnedProjects.refresh;
 
   const openPalette = useOpenPalette();
@@ -549,7 +571,7 @@ function AppContents({ initialProjectPath }: AppProps) {
   );
 
   // Cmd/Ctrl+1..9 → jump to Nth sidebar project (pinned first, then active).
-  useProjectNumberShortcuts({ pinnedPaths, handleSelectProject });
+  useProjectNumberShortcuts({ pinnedPaths: confirmedPinnedPaths, handleSelectProject });
 
   const { activeAccount, accounts } = useActiveAccount(currentProject?.path ?? null);
   const handleSelectWorkspaceShortcut = useCallback(
@@ -576,7 +598,7 @@ function AppContents({ initialProjectPath }: AppProps) {
   // Palette commands with real handlers — see src/commands/useAppCommands.tsx
   useAppCommands({
     currentProject,
-    pinnedPaths,
+    pinnedPaths: confirmedPinnedPaths,
     handleSelectProject,
     handleBackToProjects,
     handleCreateProject,
@@ -701,12 +723,15 @@ function AppContents({ initialProjectPath }: AppProps) {
   });
 
   // Plugin data for PluginSlot components (defined before early returns so all views can use them)
+  const hasCurrentProject = Boolean(currentProject);
+  const pluginProjectName = currentProject?.name ?? '';
+  const pluginProjectPath = currentProject?.path ?? '';
   const pluginProject = useMemo(
     () =>
-      currentProject
+      hasCurrentProject
         ? {
-            name: currentProject.name,
-            path: currentProject.path,
+            name: pluginProjectName,
+            path: pluginProjectPath,
             currentBranch: currentBranch || 'main',
             hasUncommittedChanges,
             devServerUrl: `http://localhost:${String(devServerPort)}`,
@@ -714,7 +739,9 @@ function AppContents({ initialProjectPath }: AppProps) {
           }
         : null,
     [
-      currentProject,
+      hasCurrentProject,
+      pluginProjectName,
+      pluginProjectPath,
       currentBranch,
       hasUncommittedChanges,
       devServerPort,
@@ -837,7 +864,7 @@ function AppContents({ initialProjectPath }: AppProps) {
 
   const devServerProps = useMemo(
     () => ({
-      hasDevServer: !!devServerRef.current,
+      hasDevServer: hasCurrentProject ? isServerRunning(pluginProjectPath) : false,
       knownDevServerPort,
       healthPanelRef,
       devServerPort,
@@ -858,7 +885,9 @@ function AppContents({ initialProjectPath }: AppProps) {
       onDevServerResize: resizeDevServer,
     }),
     [
-      devServerRef,
+      hasCurrentProject,
+      pluginProjectPath,
+      isServerRunning,
       knownDevServerPort,
       devServerPort,
       projectType,
@@ -1097,8 +1126,11 @@ function AppContents({ initialProjectPath }: AppProps) {
       onUnpinProject: handleRailUnpin,
       onRenameProject: handleRenameProject,
       onTogglePinProject: handleTogglePin,
+      onReorderProjects: handleReorderProjects,
       onSelectProjectTab: handleSelectProjectTab,
       isProjectDevServerRunning: isServerRunning,
+      getProjectDevServerSnapshot,
+      devServerLifecycleVersion: serverLifecycleVersion,
       onStopDevServer: handleStopDevServer,
       onSwitchAccount: openAccountSelect,
     }),
@@ -1114,8 +1146,11 @@ function AppContents({ initialProjectPath }: AppProps) {
       handleRailUnpin,
       handleRenameProject,
       handleTogglePin,
+      handleReorderProjects,
       handleSelectProjectTab,
       isServerRunning,
+      getProjectDevServerSnapshot,
+      serverLifecycleVersion,
       handleStopDevServer,
       setView,
     ]
@@ -1254,12 +1289,15 @@ function AppContents({ initialProjectPath }: AppProps) {
     onUnpinProject: handleRailUnpin,
     onRenameProject: handleRenameProject,
     onTogglePinProject: handleTogglePin,
+    onReorderProjects: handleReorderProjects,
     onStopDevServer: handleStopDevServer,
     onSelectProjectTab: handleSelectProjectTab,
     onGoHome: handleBackToProjects,
     onOpenProjectPicker: openProjectPicker,
     onSwitchAccount: openAccountSelect,
     isProjectDevServerRunning: isServerRunning,
+    getProjectDevServerSnapshot,
+    devServerLifecycleVersion: serverLifecycleVersion,
     isSidebarHidden,
     onToggleSidebar: toggleSidebar,
     compactWorkspaceToolbarEnabled,
@@ -1273,26 +1311,33 @@ function AppContents({ initialProjectPath }: AppProps) {
   };
 
   return (
-    <AppViewRouter
-      view={view}
-      isCompact={isCompact}
-      compactWorkspaceToolbarEnabled={compactWorkspaceToolbarEnabled}
-      bootProgress={bootProgress}
-      onOnboardingComplete={() => void handleOnboardingComplete()}
-      accountSelectProps={accountSelectProps}
-      homeSidebarProps={homeSidebarProps}
-      projectsViewProps={projectsViewProps}
-      workspaceViewProps={workspaceViewProps}
-      currentProject={currentProject}
-      pendingMonorepoPick={pendingMonorepoPick}
-      onSelectMonorepoPick={handleSelectMonorepoPick}
-      onConfirmMonorepoPick={() => void handleConfirmMonorepoPick()}
-      onCancelMonorepoPick={() => void handleCancelMonorepoPick()}
-      thumbnailConsentProps={thumbnailConsentProps}
-      toasts={toasts}
-      onDismissToast={dismissToast}
-      quitConfirmModal={quitConfirmModal}
-    />
+    <>
+      <PinnedProjectCommandHost
+        pinnedPaths={confirmedPinnedPaths}
+        currentProjectPath={currentProject?.path ?? null}
+        onReorderProjects={handleReorderProjects}
+      />
+      <AppViewRouter
+        view={view}
+        isCompact={isCompact}
+        compactWorkspaceToolbarEnabled={compactWorkspaceToolbarEnabled}
+        bootProgress={bootProgress}
+        onOnboardingComplete={() => void handleOnboardingComplete()}
+        accountSelectProps={accountSelectProps}
+        homeSidebarProps={homeSidebarProps}
+        projectsViewProps={projectsViewProps}
+        workspaceViewProps={workspaceViewProps}
+        currentProject={currentProject}
+        pendingMonorepoPick={pendingMonorepoPick}
+        onSelectMonorepoPick={handleSelectMonorepoPick}
+        onConfirmMonorepoPick={() => void handleConfirmMonorepoPick()}
+        onCancelMonorepoPick={() => void handleCancelMonorepoPick()}
+        thumbnailConsentProps={thumbnailConsentProps}
+        toasts={toasts}
+        onDismissToast={dismissToast}
+        quitConfirmModal={quitConfirmModal}
+      />
+    </>
   );
 }
 

@@ -46,9 +46,37 @@ function zIndexOf(css, selector) {
 }
 
 describe('workspace chrome stacking ladder', () => {
+  const dockCss = readCss('src/styles/features/workspace/dock.css');
+  const dockedPanel = tokenValue('--z-dropdown');
   const separator = tokenValue('--z-pane-separator');
   const previewToolbar = tokenValue('--z-preview-toolbar');
   const header = tokenValue('--z-workspace-header');
+  const previewFullscreen = tokenValue('--z-preview-fullscreen');
+  const dockDropIndicator = tokenValue('--z-dock-drop-indicator');
+  const floatingPanel = tokenValue('--z-floating-panel');
+
+  it('keeps the dock drop indicator between pinned and floating panels', () => {
+    assert.equal(
+      zIndexOf(dockCss, '.workspace-dock__drop-line'),
+      'var(--z-dock-drop-indicator)'
+    );
+    assert.ok(
+      dockedPanel < dockDropIndicator,
+      `--z-dock-drop-indicator (${dockDropIndicator}) must sit above pinned panels (${dockedPanel})`
+    );
+    assert.ok(
+      header < dockDropIndicator,
+      `--z-dock-drop-indicator (${dockDropIndicator}) must sit above fixed chrome (${header})`
+    );
+    assert.ok(
+      previewFullscreen < dockDropIndicator,
+      `--z-dock-drop-indicator (${dockDropIndicator}) must sit above fullscreen chrome (${previewFullscreen})`
+    );
+    assert.ok(
+      dockDropIndicator < floatingPanel,
+      `--z-dock-drop-indicator (${dockDropIndicator}) must sit below floating panels (${floatingPanel})`
+    );
+  });
 
   it('orders pane separators below the preview toolbar below header chrome', () => {
     assert.ok(
@@ -73,16 +101,14 @@ describe('workspace chrome stacking ladder', () => {
   it('keeps the preview toolbar above the pane separators it was raised for', () => {
     const consumers = [
       readCss('src/styles/features/preview.css'),
-      readCss('src/styles/features/workspace/split-pane.css'),
+      dockCss,
     ];
     let seen = 0;
-    for (const css of consumers) {
-      for (const [, token] of css.matchAll(/z-index:\s*var\((--z-pane-separator)\)/g)) {
-        seen += 1;
-        assert.ok(tokenValue(token) < previewToolbar);
-      }
+    for (const [, token] of dockCss.matchAll(/z-index:\s*var\((--z-pane-separator)\)/g)) {
+      seen += 1;
+      assert.ok(tokenValue(token) < previewToolbar);
     }
-    assert.ok(seen > 0, 'expected the pane separators to still use --z-pane-separator');
+    assert.equal(seen, 2, 'both workspace dock resize handles must use --z-pane-separator');
   });
 
   it('keeps the workspace titlebar and header on the header tier', () => {

@@ -73,6 +73,14 @@
   gap: var(--spacing-xs);
 }
 
+.workspace-panel-group > .team-presence-wrap {
+  order: 1;
+}
+
+.workspace-panel-group > .workspace-plugins-control {
+  order: 2;
+}
+
 .workspace-titlebar-center {
   display: flex;
   align-items: stretch;
@@ -297,6 +305,10 @@
   display: flex;
   gap: var(--spacing-sm);
   padding-inline-end: var(--spacing-lg);
+}
+
+.app.workspace:not(.workspace--compact-toolbar) .workspace-titlebar-actions {
+  margin-inline-start: auto;
 }
 
 .app.workspace:not(.workspace--compact-toolbar) .workspace-title-group {

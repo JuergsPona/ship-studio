@@ -5,6 +5,7 @@
 Ship Studio is a desktop app for web developers that provides:
 - **Project Management** - Create new projects from templates (web + mobile starters), import repos from GitHub, register external local folders, and organize the dashboard with folders
 - **AI Agent Terminal** - Integrated terminal for Claude Code, Codex, or Opencode, with multi-tab and side-by-side panes
+- **Flexible Panels** - Every panel (Agent, Team, Variables, Edit, Navigator) can be dragged anywhere in the workspace rail, floated as a window, or moved to the other side of the preview. The arrangement is remembered per project, with a default new projects start from (see `docs/flexible-panels.md`)
 - **Live Preview** - Responsive breakpoints, zoom, fullscreen mode, and a locale switcher for multilingual projects. The breakpoint canvas shows every breakpoint at once, side by side, each showing its whole page at an honest viewport height, with editing in whichever frame is active (see `docs/breakpoint-canvas.md`)
 - **Visual Editing** - Point-and-click edit mode on the preview with a pinnable editor panel and a Webflow-style element tree (fullscreen)
 - **Mobile App Preview** - Build and mirror Expo / React Native / Flutter apps on the iOS simulator inside the workspace
@@ -14,12 +15,12 @@ Ship Studio is a desktop app for web developers that provides:
 - **Site Migration** - Paste a live URL into New Project and the agent rebuilds it here, measuring every page against the original before calling it done (see `docs/site-migration.md`)
 - **Snapshots & Backups** - Create and restore project snapshots (rewind)
 - **Asset Management** - Upload, view, and delete files under a configurable assets folder (default `/public`)
-- **Multi-Window & Hot Sessions** - Open projects in separate windows; the project rail keeps background sessions (PTYs + dev server) alive when you return to the dashboard
+- **Multi-Window & Hot Sessions** - Open projects in separate windows; terminal sessions stay available when switching projects, and an Experimental setting can keep background dev servers alive too
 - **Plugins, Skills & MCP** - Extend the app with plugins; install agent skills and configure MCP servers
 - **Command Palette** - Cmd+K palette; every user-facing feature registers its actions here (see "New feature → contribute commands")
 - **IDE Integration** - Open projects in VS Code or Cursor with one click
 - **Hosting Status** - After a push, see whether *that commit* deployed on Vercel, Cloudflare Pages or Netlify, with the build error when it didn't (see "Hosting Flow")
-- **Remote Access** - Drive Ship Studio from Grok Bot (or any MCP client) on your phone: read and answer agent tabs, start agents, screenshot the preview, push behind a PIN. Your own Mac does the work over your own Tailscale Funnel, so it has to stay on — see "Remote Access Flow"
+- **Remote Access** - Drive Ship Studio from any MCP-capable AI assistant (Grok, Claude, ChatGPT, Cursor…) on your phone: continue agent conversations, start and close agents, get progress as HD screenshots, push behind a PIN. Your own Mac does the work over your own Tailscale Funnel, so it has to stay on — see "Remote Access Flow"
 - **Auto-Updates** - Automatic update detection and installation
 
 ## Core Principles
@@ -116,7 +117,7 @@ Single-file domains:
 #### Components Structure
 `src/components/` is organized by domain — new components go in the matching folder:
 - `dashboard/` - Home screen: project list/grid/cards, folders, create/import flows, settings, changelog
-- `workspace/` - Workspace shell: WorkspaceView, header/sidebar, modals wrapper, split panes, compact mode, assets panel
+- `workspace/` - Workspace shell: WorkspaceView, header/sidebar, modals wrapper, the panel rail (`WorkspaceDock`, `WorkspaceLayoutMenu`), compact mode, assets panel
 - `terminal/` - Agent/build terminals, dev-server logs/status, dev command modal
 - `preview/` - Live preview, browser tools, device mirror (mobile), locale switcher, screenshots
 - `branches/` - Git/branch UI: branches/PR tabs, conflict resolution, diff, publish controls, GitHub button
@@ -167,6 +168,7 @@ Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
 - `migration.ts` - Site migration: the phase/status model the panel renders, the fidelity types mirroring the capture script's report, and the prompts handed to the agent at creation and on resume
 - `remoteAccess.ts` - Remote access: TS mirror of the status, the stay-on checklist, setup steps, live state and audit wording
 - `mobile.ts` / `androidMirror.ts` - Mobile app preview and device mirror
+- `workspaceLayout.ts` / `workspaceLayoutStore.ts` / `dockDrag.ts` - Flexible panels: the layout model and its pure moves, the per-project + default persistence, and the pointer-to-drop-target maths — see `docs/flexible-panels.md`
 - `previewCanvas.ts` - Breakpoint-canvas geometry and zoom maths (layout, fit scale, device heights, mount window, pointer anchoring) — see `docs/breakpoint-canvas.md`
 - `polling.ts` - Exponential backoff utilities for async operations
 - `project.ts` - Project metadata and file operations
@@ -578,6 +580,31 @@ recoloring the field.
 
 Everything else that's a standalone action button (CTA, submit, cancel, delete, confirm) uses `<Button variant>`.
 
+### New workspace panel → give it a `dockSlotId` and let the rail place it
+
+Don't position a panel yourself, and don't add a `grid-template-columns` rule
+for it. Panels are placed by the workspace rail (`WorkspaceDock`), which the
+user can rearrange per project.
+
+```tsx
+// ❌ Don't — a fixed column, in a fixed order, that nobody can move
+<div className="preview-container--my-panel-pinned">…</div>
+
+// ✅ Do
+import { DockablePanel } from '../primitives/DockablePanel';
+import { usePanelDockBinding } from '../../contexts/PanelDockContext';
+
+const dock = usePanelDockBinding('myPanel');   // add the id to PANEL_META first
+<DockablePanel dock={dock} docked={isDocked(layout, 'myPanel')} visible={isOpen} …>
+```
+
+Add the panel to `PANEL_META` and `DEFAULT_LAYOUT` in
+[src/lib/workspaceLayout.ts](src/lib/workspaceLayout.ts); `normalizeLayout`
+inserts it into every already-saved layout at that position. The rail then owns
+its column, its width, its resize handle, and the header drag that moves it —
+the panel owns only whether it is open and what it shows. Full design:
+[docs/flexible-panels.md](docs/flexible-panels.md).
+
 ### Async state in components → use `useAsyncState` or `useInvoke`
 
 Don't hand-roll `isLoading` + `error` + `data` state triples; they forget the mount guard, forget the `finally`, and drift.
@@ -768,6 +795,7 @@ CI (`pnpm check:patterns`, `pnpm check:loc`) and/or a reviewer.
 - **Raw `setInterval` polling** — use `usePolling`. Handles backoff on error and teardown.
 - **`Result<T, String>` on `#[tauri::command]` entry points** — use `Result<T, CommandError>` from `src-tauri/src/errors.rs`. String errors can't be discriminated by the frontend.
 - **Bare `.output().await` on network CLI calls** — use `run_with_timeout` from `src-tauri/src/external_command.rs`. Unbounded CLI calls can hang the UI forever.
+- **A panel that positions itself** — a `position: fixed` panel with its own drag, or a `grid-template-columns` rule naming panels in a fixed order. Three optional side panels needed eight of those rules plus seven toolbar overrides, and that set of selectors *was* the layout, which is why nothing could be rearranged. Use `DockablePanel` with a `dockSlotId`.
 - **Raw hex colors, raw px spacing, raw z-index numbers in CSS** — use the manifest-ordered token layers under `src/styles/global/`. Adding a new value? Add it to the correct layer first.
 
 ## Known Gotchas

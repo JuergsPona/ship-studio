@@ -2,8 +2,10 @@ import EyeSvg from '../../assets/icons/eye.svg?react';
 import ClosedEyeSvg from '../../assets/icons/closed-eye.svg?react';
 import SidebarSvg from '../../assets/icons/sidebar.svg?react';
 import ElementsSvg from '../../assets/icons/elements.svg?react';
-import ExpandSvg from '../../assets/icons/expand.svg?react';
-import ContractSvg from '../../assets/icons/contract.svg?react';
+import ExpandDiagonalSvg from '../../assets/icons/expand-diagonal.svg?react';
+import ContractDiagonalSvg from '../../assets/icons/contract-diagonal.svg?react';
+import ExpandVerticalSvg from '../../assets/icons/expand-vertical.svg?react';
+import ContractVerticalSvg from '../../assets/icons/contract-vertical.svg?react';
 import PinSvg from '../../assets/icons/pin.svg?react';
 import ScreenshotSvg from '../../assets/icons/screenshot.svg?react';
 import ScreenshotCropSvg from '../../assets/icons/screenshot-crop.svg?react';
@@ -20,6 +22,8 @@ import MobileHorizontalSvg from '../../assets/icons/mobile-horizontal.svg?react'
 import MobileSvg from '../../assets/icons/mobile.svg?react';
 import FolderStackSvg from '../../assets/icons/old-icons/folder-stack.svg?react';
 import SplitViewSvg from '../../assets/icons/old-icons/split-view.svg?react';
+import PanelLayoutSvg from '../../assets/icons/template.svg?react';
+import DragHandleSvg from '../../assets/icons/drag-handle.svg?react';
 import { createIcon } from './icon-base';
 
 export const EyeIcon = createIcon(EyeSvg, {
@@ -50,16 +54,30 @@ export const ElementsIcon = createIcon(ElementsSvg, {
   defaultSize: 16,
   strokeWidth: '1px',
 });
-export const ExpandIcon = createIcon(ExpandSvg, {
-  name: 'ExpandIcon',
-  source: 'icons/expand.svg',
+export const ExpandDiagonalIcon = createIcon(ExpandDiagonalSvg, {
+  name: 'ExpandDiagonalIcon',
+  source: 'icons/expand-diagonal.svg',
   kind: 'ui',
   defaultSize: 16,
   strokeWidth: '1px',
 });
-export const CompactIcon = createIcon(ContractSvg, {
-  name: 'CompactIcon',
-  source: 'icons/contract.svg',
+export const ContractDiagonalIcon = createIcon(ContractDiagonalSvg, {
+  name: 'ContractDiagonalIcon',
+  source: 'icons/contract-diagonal.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ExpandVerticalIcon = createIcon(ExpandVerticalSvg, {
+  name: 'ExpandVerticalIcon',
+  source: 'icons/expand-vertical.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ContractVerticalIcon = createIcon(ContractVerticalSvg, {
+  name: 'ContractVerticalIcon',
+  source: 'icons/contract-vertical.svg',
   kind: 'ui',
   defaultSize: 16,
   strokeWidth: '1px',
@@ -181,4 +199,30 @@ export const SplitViewIcon = createIcon(SplitViewSvg, {
   source: 'icons/old-icons/split-view.svg',
   kind: 'ui',
   defaultSize: 14,
+});
+
+/**
+ * Where the workspace's panels are — the Layout menu's trigger.
+ *
+ * A frame with a header bar and a side column, which is the arrangement it
+ * changes. Shares its artwork with `TemplateIcon` and is a separate export
+ * because it means a different thing here; the two never appear together.
+ *
+ * Not `SidebarIcon` or `SplitViewIcon`: those are byte-identical artwork to
+ * each other, and one of them is already the titlebar's sidebar toggle a few
+ * buttons to the left of this one.
+ */
+export const PanelLayoutIcon = createIcon(PanelLayoutSvg, {
+  name: 'PanelLayoutIcon',
+  source: 'icons/template.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+
+export const DragHandleIcon = createIcon(DragHandleSvg, {
+  name: 'DragHandleIcon',
+  source: 'icons/drag-handle.svg',
+  kind: 'ui',
+  defaultSize: 16,
 });

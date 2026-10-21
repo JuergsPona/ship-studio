@@ -99,6 +99,8 @@ export interface WorkspaceHeaderProps {
    * has any other reason to know about.
    */
   teamPresence?: ReactNode;
+  /** The Layout menu — where the panels are, and how to change it. */
+  layoutMenu?: ReactNode;
 
   // Primary workspace modes (Preview/Focus/Code), rendered in the topbar
   // between the project location and repository/publishing actions.
@@ -280,6 +282,7 @@ export function WorkspaceTitlebar({ children }: WorkspaceTitlebarProps) {
   );
 }
 
+/** Arranges project navigation, workspace actions, team presence, and plugin controls. */
 export function WorkspaceHeader({
   projectPath,
   projectName,
@@ -302,6 +305,7 @@ export function WorkspaceHeader({
   onToggleVariablesPanel,
   headerExtras,
   teamPresence,
+  layoutMenu,
   modes,
   integrations,
   onGitHubStatusChange,
@@ -512,8 +516,8 @@ export function WorkspaceHeader({
         data-workspace-panel="assets"
         leftIcon={<ImageIcon size={16} />}
       />
-      {headerExtras}
       {teamPresence}
+      {headerExtras}
     </div>
   );
   const projectTitle = (
@@ -581,6 +585,7 @@ export function WorkspaceHeader({
             onToggleSidebar={onToggleSidebar}
           />
           {projectTitle}
+          <div className="workspace-titlebar-actions">{layoutMenu}</div>
         </WorkspaceTitlebar>
       ),
       toolbar: (
@@ -619,7 +624,10 @@ export function WorkspaceHeader({
         <div className="workspace-titlebar-center">
           <div className="workspace-titlebar-modes">{modes}</div>
         </div>
-        <div className="workspace-titlebar-actions">{publishingActions}</div>
+        <div className="workspace-titlebar-actions">
+          {publishingActions}
+          {layoutMenu}
+        </div>
       </WorkspaceTitlebar>
     ),
     toolbar: null,

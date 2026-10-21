@@ -1,0 +1,313 @@
+/* Rows within a section */
+.sidebar-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  column-gap: 0;
+  height: var(--size-sidebar-section-row);
+  padding: 0 0 0 var(--space-08);
+  cursor: pointer;
+  border-left: none;
+  border-radius: var(--radius-4);
+  color: var(--text-primary);
+  transition: background var(--transition-fast);
+}
+
+.sidebar-row:hover {
+  background: var(--surface-control);
+}
+
+.sidebar-row:focus-visible {
+  outline: none;
+  background: var(--surface-control);
+}
+
+.sidebar-row.is-active {
+  background: var(--surface-control);
+}
+
+/* Agent/terminal row needs user attention — the label goes green (success)
+ * so a user scanning the sidebar from any project can spot a tab they need
+ * to check. The dot keeps its amber pulse from `.dot-attention` as the
+ * urgency cue; the label color is the "come-look-at-me" affordance.
+ * Scoped to non-active rows because the active row is where the user
+ * already is (attention clears on activate). */
+.sidebar-row.is-attention .sidebar-row-label {
+  color: var(--accent-success);
+  font-weight: 600;
+}
+
+.sidebar-row-dot {
+  width: var(--size-sidebar-status-indicator);
+  height: var(--size-sidebar-status-indicator);
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+  background: var(--text-muted);
+}
+
+/* Both the ordinary dot and the pixel loader share this fixed status slot, so
+ * switching states cannot move the row label. The wrapper owns the gap so it
+ * remains identical for either indicator. */
+.sidebar-row-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--pixel-loader-size-sm);
+  height: var(--pixel-loader-size-sm);
+  margin-right: var(--button-gap);
+  flex-shrink: 0;
+}
+
+.sidebar-row-pixel-loader {
+  color: var(--accent-success);
+}
+
+.sidebar-row-dot.dot-idle {
+  background: var(--text-muted);
+}
+
+.sidebar-row-dot.dot-muted {
+  background: var(--border-default);
+}
+
+.sidebar-row-dot.dot-active {
+  background: var(--accent-success);
+  box-shadow: 0 0 0 2px rgba(var(--accent-success-rgb), 0.15);
+}
+
+.sidebar-row-dot.dot-attention {
+  background: var(--accent-warning);
+  box-shadow: 0 0 0 2px rgba(var(--accent-warning-rgb), 0.2);
+  animation: sidebar-pulse 1.6s ease-in-out infinite;
+}
+
+.sidebar-row-dot.dot-waiting {
+  background: var(--accent-warning);
+  box-shadow: 0 0 0 2px rgba(var(--accent-warning-rgb), 0.2);
+}
+
+.sidebar-row-dot.dot-error {
+  background: var(--accent-error);
+  box-shadow: 0 0 0 2px rgba(var(--accent-error-rgb), 0.2);
+}
+
+.sidebar-row-dot.dot-server-starting {
+  background: var(--accent-focus);
+  animation: sidebar-pulse 1.6s ease-in-out infinite;
+}
+
+.sidebar-row-dot.dot-server-ready {
+  background: var(--accent-success);
+  box-shadow:
+    0 0 var(--size-sidebar-server-glow-rest-inner-radius)
+      color-mix(in srgb, var(--accent-success) 35%, transparent),
+    0 0 var(--size-sidebar-server-glow-rest-outer-radius)
+      color-mix(in srgb, var(--accent-success) 15%, transparent);
+  animation: sidebar-server-light-glow var(--duration-sidebar-server-glow) ease-in-out infinite;
+}
+
+.sidebar-project.is-current .sidebar-row-dot.dot-server-ready {
+  opacity: 1;
+  box-shadow:
+    0 0 var(--size-sidebar-server-glow-current-inner-radius)
+      color-mix(in srgb, var(--accent-success) 85%, transparent),
+    0 0 var(--size-sidebar-server-glow-current-outer-radius)
+      color-mix(in srgb, var(--accent-success) 55%, transparent);
+  animation: none;
+}
+
+.sidebar-row-dot.dot-server-stopped {
+  background: var(--border-default);
+}
+
+@keyframes sidebar-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes sidebar-server-light-glow {
+  0%,
+  100% {
+    opacity: 0.55;
+    box-shadow:
+      0 0 var(--size-sidebar-server-glow-rest-inner-radius)
+        color-mix(in srgb, var(--accent-success) 35%, transparent),
+      0 0 var(--size-sidebar-server-glow-rest-outer-radius)
+        color-mix(in srgb, var(--accent-success) 15%, transparent);
+  }
+
+  50% {
+    opacity: 1;
+    box-shadow:
+      0 0 var(--size-sidebar-server-glow-current-inner-radius)
+        color-mix(in srgb, var(--accent-success) 85%, transparent),
+      0 0 var(--size-sidebar-server-glow-current-outer-radius)
+        color-mix(in srgb, var(--accent-success) 55%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-row-dot.dot-server-ready {
+    animation: none;
+  }
+}
+
+.sidebar-row-label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-12);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Suppress the browser-default text selection on double-click — the
+     selection flashes for one frame before the rename input mounts. */
+  user-select: none;
+  -webkit-user-select: none;
+  margin-right: var(--space-06);
+}
+
+/* Inline rename input that replaces the label while editing. Sized to fill
+   the same flex slot so the row layout doesn't jump. */
+.sidebar-row-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  margin: 0;
+  font-size: var(--font-size-body-md);
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--surface-control);
+  border: 1px solid var(--accent-active);
+  border-radius: var(--radius-sm);
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  margin-right: var(--space-06);
+}
+
+.sidebar-row-meta {
+  font-size: var(--font-size-badge);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  margin-right: var(--space-06);
+}
+
+.sidebar-row-close {
+  width: var(--size-icon-md);
+  min-width: var(--size-icon-md);
+  height: var(--size-icon-md);
+  min-height: var(--size-icon-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-subhead);
+  line-height: 1;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  opacity: 0;
+}
+
+.sidebar-row:hover .sidebar-row-close,
+.sidebar-row:focus-within .sidebar-row-close,
+.sidebar-row-close:focus-visible {
+  opacity: 1;
+}
+
+.sidebar-row-close:hover:not(:disabled) {
+  background: var(--button-surface-hover);
+  color: var(--text-primary);
+}
+
+/* Inline action button (e.g. restart dev server). Unlike the close
+   button, this stays visible so users can discover the action without
+   hovering, but dims until the row is hovered/focused. No bg change on
+   hover — just the icon going fully white. */
+.sidebar-row-action {
+  width: var(--size-icon-md);
+  min-width: var(--size-icon-md);
+  height: var(--size-icon-md);
+  min-height: var(--size-icon-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  opacity: 0.55;
+  transition:
+    opacity var(--transition),
+    color var(--transition);
+  flex-shrink: 0;
+}
+
+/* Sidebar actions use the icon's authored size rather than the generic
+ * 16px Button primitive wrapper. Keeping the wrapper content-sized also
+ * centers text glyphs such as the plus and close controls in their slots. */
+.workspace-sidebar .sidebar-section-add .button__icon,
+.workspace-sidebar .sidebar-row-action .button__icon,
+.workspace-sidebar .sidebar-row-close .button__icon {
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+}
+
+.workspace-sidebar .sidebar-row-action .button__icon > svg {
+  width: auto;
+  height: auto;
+}
+
+.sidebar-row-control-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-icon-md);
+  height: var(--size-icon-md);
+}
+
+/* Empty action/close slots should not reserve trailing space. Rows that have
+ * a control keep the fixed icon-sized slot, while metadata can reach the
+ * right edge on rows such as Worktrees that have no actions. */
+.sidebar-row-control-slot:empty {
+  display: none;
+}
+
+.sidebar-row:hover .sidebar-row-action,
+.sidebar-row:focus-within .sidebar-row-action,
+.sidebar-row-action:focus-visible {
+  opacity: 1;
+}
+
+.sidebar-row-action:hover:not(:disabled) {
+  background: var(--button-surface-hover);
+  color: var(--text-inverse);
+}
+
+.sidebar-row-action:disabled {
+  cursor: progress;
+  opacity: 0.35;
+}
+
+/* Trailing slot hosts the BrowserDropdown on the Dev server row. Needs to
+   be display:flex + shrink:0 so the 18px icon button inside (styled via
+   `.sidebar-row-action`) keeps its square footprint, and stopPropagation
+   on the wrapper prevents the row's own onClick from firing when the
+   user clicks the dropdown. */
+.sidebar-row-trailing {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}

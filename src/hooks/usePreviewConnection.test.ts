@@ -125,6 +125,160 @@ describe('usePreviewConnection readiness probe', () => {
     });
   });
 
+  it('probes a tracked warm server immediately but waits for its response before showing Preview', async () => {
+    const server = installSlowServerFetch();
+    const { result, unmount } = renderHook(() =>
+      usePreviewConnection({ ...baseParams, serverAlreadyRunning: true })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(server.fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000',
+      expect.objectContaining({ mode: 'no-cors' })
+    );
+    expect(result.current.serverReady).toBe(false);
+    expect(result.current.isLoading).toBe(true);
+
+    await act(async () => {
+      server.finishCompile();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.serverReady).toBe(true);
+    expect(result.current.isLoading).toBe(false);
+
+    await act(async () => {
+      unmount();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  });
+
+  it('reuses a successful probe only for the same server run and rechecks in the background', async () => {
+    const runId = 90210;
+    const firstServer = installSlowServerFetch();
+    const first = renderHook(() =>
+      usePreviewConnection({ ...baseParams, serverAlreadyRunning: true, serverInstanceId: runId })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      firstServer.finishCompile();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(first.result.current.serverReady).toBe(true);
+    await act(async () => {
+      first.unmount();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    const returningServer = installSlowServerFetch();
+    const returning = renderHook(() =>
+      usePreviewConnection({ ...baseParams, serverAlreadyRunning: true, serverInstanceId: runId })
+    );
+    expect(returning.result.current.serverReady).toBe(true);
+    expect(returning.result.current.isLoading).toBe(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(returningServer.fetchMock).toHaveBeenCalledTimes(1);
+    expect(returning.result.current.serverReady).toBe(true);
+    await act(async () => {
+      returning.unmount();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    const restartedServer = installSlowServerFetch();
+    const restarted = renderHook(() =>
+      usePreviewConnection({
+        ...baseParams,
+        serverAlreadyRunning: true,
+        serverInstanceId: runId + 1,
+      })
+    );
+    expect(restarted.result.current.serverReady).toBe(false);
+    expect(restarted.result.current.isLoading).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(restartedServer.fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      restarted.unmount();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  });
+
+  it('keeps the current page across a restart of the same project server, resets on project switch', async () => {
+    installSlowServerFetch();
+    type Props = {
+      projectPath: string;
+      isDevServerRestarting: boolean;
+      serverAlreadyRunning: boolean;
+      serverInstanceId: number | null;
+    };
+    const { result, rerender, unmount } = renderHook(
+      (props: Props) => usePreviewConnection({ ...baseParams, ...props }),
+      {
+        initialProps: {
+          projectPath: baseParams.projectPath,
+          isDevServerRestarting: false,
+          serverAlreadyRunning: true,
+          serverInstanceId: 501,
+        } as Props,
+      }
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    act(() => result.current.handlePageSelect('/about'));
+    expect(result.current.currentPage).toBe('/about');
+
+    // Restart: the old run goes away, then a new run with a new identity.
+    rerender({
+      projectPath: baseParams.projectPath,
+      isDevServerRestarting: true,
+      serverAlreadyRunning: false,
+      serverInstanceId: null,
+    });
+    rerender({
+      projectPath: baseParams.projectPath,
+      isDevServerRestarting: true,
+      serverAlreadyRunning: true,
+      serverInstanceId: 502,
+    });
+    rerender({
+      projectPath: baseParams.projectPath,
+      isDevServerRestarting: false,
+      serverAlreadyRunning: true,
+      serverInstanceId: 502,
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.currentPage).toBe('/about');
+    expect(result.current.iframePath).toBe('/about');
+
+    // A genuine project switch still starts from the root.
+    rerender({
+      projectPath: '/path/to/other-project',
+      isDevServerRestarting: false,
+      serverAlreadyRunning: true,
+      serverInstanceId: 777,
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.currentPage).toBe('/');
+    expect(result.current.iframePath).toBe('/');
+
+    await act(async () => {
+      unmount();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  });
+
   it('Stop aborts the in-flight probe instead of leaving a 30s fetch running', async () => {
     const server = installSlowServerFetch();
     const { result, unmount } = renderHook(() => usePreviewConnection(baseParams));
@@ -541,5 +695,73 @@ describe('usePreviewConnection page-list load failures (issue #541)', () => {
       unmount();
       await vi.advanceTimersByTimeAsync(0);
     });
+  });
+});
+
+describe('usePreviewConnection typed URLs (query + hash)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  async function renderReadyPreview() {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({} as Response));
+    const utils = renderHook(() => usePreviewConnection(baseParams));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(utils.result.current.serverReady).toBe(true);
+    return utils;
+  }
+
+  function navigate(data: Record<string, string>) {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: 'shipstudio:navigate', ...data },
+        origin: 'http://localhost:8080',
+      })
+    );
+  }
+
+  it('loads a typed query into the frame but keeps currentPage a bare pathname', async () => {
+    const { result, unmount } = await renderReadyPreview();
+
+    act(() => result.current.handlePageSelect('/pricing?plan=pro#faq'));
+    expect(result.current.currentPage).toBe('/pricing');
+    expect(result.current.currentLocation).toBe('/pricing?plan=pro#faq');
+    expect(result.current.currentUrl).toBe('http://localhost:8080/pricing?plan=pro#faq');
+
+    unmount();
+  });
+
+  it('tracks the query the page reports, so refresh does not drop it', async () => {
+    const { result, unmount } = await renderReadyPreview();
+
+    act(() => navigate({ pathname: '/blog', search: '?tag=news', hash: '' }));
+    expect(result.current.currentLocation).toBe('/blog?tag=news');
+
+    act(() => result.current.handleRefresh());
+    expect(result.current.iframePath).toBe('/blog?tag=news');
+
+    unmount();
+  });
+
+  it('treats a navigate message without search/hash (older injected script) as none', async () => {
+    const { result, unmount } = await renderReadyPreview();
+
+    act(() => result.current.handlePageSelect('/a?x=1'));
+    act(() => navigate({ pathname: '/b' }));
+    expect(result.current.currentLocation).toBe('/b');
+
+    unmount();
   });
 });

@@ -8,6 +8,7 @@ import { ToastList } from './primitives/ToastList';
 import { useModal } from '../contexts/ModalContext';
 import { usePaletteContext } from './CommandPalette/paletteContext';
 import { ToastProvider, useToast } from '../contexts/ToastContext';
+import { IssueReportModals } from './issue-reports/IssueReportModals';
 
 /**
  * Globally-mounted modals that palette commands can open from any view.
@@ -47,6 +48,7 @@ function GlobalModalsBody() {
       <AttachedLibrariesModal isOpen={attachedLibraries.isOpen} onClose={attachedLibraries.close} />
       <SettingsModal isOpen={settings.isOpen} onClose={settings.close} />
       <RemoteAccessModal isOpen={remoteAccess.isOpen} onClose={remoteAccess.close} />
+      <IssueReportModals />
       <MigrationModals />
       <ToastList toasts={toasts} onDismiss={dismissToast} />
     </>

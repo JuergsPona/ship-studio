@@ -32,11 +32,13 @@ export interface UseProjectRailReturn {
   /** Full pinned-projects state — rows, isLoading, pin/unpin/reorder, etc. */
   pinnedProjects: UsePinnedProjectsReturn;
   /** Pin or unpin a project, surfacing errors via toast. */
-  handleTogglePin: (projectPath: string, shouldPin: boolean) => Promise<void>;
+  handleTogglePin: (projectPath: string, shouldPin: boolean) => Promise<boolean>;
   /** Open a pinned project when its rail icon is clicked. */
   handleRailClick: (projectPath: string) => void;
   /** Unpin a project from the rail's context menu. */
   handleRailUnpin: (projectPath: string) => void;
+  /** Persist a new pinned-project order, surfacing failures via toast. */
+  handleReorderProjects: (orderedPaths: string[]) => Promise<void>;
   /** Pin a project from the picker and open it. */
   handleAddProject: (projectPath: string) => void;
 }
@@ -56,6 +58,7 @@ export function useProjectRail({
         } else {
           await pinnedProjects.unpin(projectPath);
         }
+        return true;
       } catch (e) {
         const detail = formatCommandError(asCommandError(e));
         const name = basename(projectPath) || 'project';
@@ -65,6 +68,7 @@ export function useProjectRail({
           projectPath,
           shouldPin,
         });
+        return false;
       }
     },
     [pinnedProjects, showToast]
@@ -88,10 +92,28 @@ export function useProjectRail({
     [handleTogglePin]
   );
 
+  const reorderPinnedProjects = pinnedProjects.reorder;
+  const handleReorderProjects = useCallback(
+    async (orderedPaths: string[]) => {
+      try {
+        await reorderPinnedProjects(orderedPaths);
+      } catch (e) {
+        const detail = formatCommandError(asCommandError(e));
+        showToast(`Couldn't reorder pinned projects: ${detail}`, 'error');
+        logger.error('[useProjectRail] Pin reorder failed', {
+          error: detail,
+          orderedPaths,
+        });
+        throw e;
+      }
+    },
+    [reorderPinnedProjects, showToast]
+  );
+
   const handleAddProject = useCallback(
     (projectPath: string) => {
       void (async () => {
-        await handleTogglePin(projectPath, true);
+        if (!(await handleTogglePin(projectPath, true))) return;
         const projectName = basename(projectPath) || 'project';
         void handleSelectProject({ name: projectName, path: projectPath, thumbnail: null });
       })();
@@ -99,5 +121,12 @@ export function useProjectRail({
     [handleTogglePin, handleSelectProject]
   );
 
-  return { pinnedProjects, handleTogglePin, handleRailClick, handleRailUnpin, handleAddProject };
+  return {
+    pinnedProjects,
+    handleTogglePin,
+    handleRailClick,
+    handleRailUnpin,
+    handleReorderProjects,
+    handleAddProject,
+  };
 }

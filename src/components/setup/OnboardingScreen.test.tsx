@@ -1,12 +1,13 @@
 /**
  * Integration tests for OnboardingScreen — the step-by-step wizard.
  *
- * These tests mock the Tauri IPC layer at the module level and verify
+ * These tests use the shared Tauri IPC mock and verify
  * the wizard state machine transitions: loading → wizard steps → complete
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { clearInvokeMocks, getInvokeCalls, mockInvokeResponse } from '../../test/setup';
 import {
   FRESH_STATUS,
   CLAUDE_ONLY_STATUS,
@@ -24,25 +25,24 @@ import {
   HAS_CLAUDE_NO_GITHUB_STATUS,
 } from '../../test/fixtures/setup';
 
-// ============ Module-level mocks ============
-
-const invokeResults = new Map<string, { value?: unknown; error?: Error }>();
-
+// ============ Shared IPC mock helpers ============
 function mockInvoke(cmd: string, value: unknown) {
-  invokeResults.set(cmd, { value });
-}
-function mockInvokeErr(cmd: string, error: Error) {
-  invokeResults.set(cmd, { error });
+  mockInvokeResponse(cmd, value);
 }
 
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn((cmd: string) => {
-    const result = invokeResults.get(cmd);
-    if (result?.error) return Promise.reject(result.error);
-    if (result) return Promise.resolve(result.value);
-    return Promise.resolve(undefined);
-  }),
-}));
+function mockInvokeErr(cmd: string, error: Error) {
+  mockInvokeRejected(cmd, error);
+}
+
+function mockInvokeRejected(cmd: string, error: unknown) {
+  mockInvokeResponse(cmd, () => {
+    throw error;
+  });
+}
+
+function mockInvokePending(cmd: string) {
+  mockInvokeResponse(cmd, () => new Promise<never>(() => {}));
+}
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
@@ -145,17 +145,15 @@ describe('OnboardingScreen', () => {
   const onComplete = vi.fn();
 
   beforeEach(() => {
-    invokeResults.clear();
+    clearInvokeMocks();
     onComplete.mockReset();
     mockCheckGitHubCliStatus.mockResolvedValue({ installed: true, authenticated: true });
   });
 
   // ============ Loading state ============
 
-  it('shows spinner while fetching status', async () => {
-    mockInvoke('get_full_setup_status', undefined);
-    const { invoke } = await import('@tauri-apps/api/core');
-    (invoke as ReturnType<typeof vi.fn>).mockImplementationOnce(() => new Promise(() => {}));
+  it('shows spinner while fetching status', () => {
+    mockInvokePending('get_full_setup_status');
 
     render(<OnboardingScreen onComplete={onComplete} />);
     expect(screen.getByText('Checking setup status...')).toBeInTheDocument();
@@ -164,10 +162,9 @@ describe('OnboardingScreen', () => {
   it('shows timeout error with Retry when the setup status check hangs', async () => {
     vi.useFakeTimers();
 
-    const { invoke } = await import('@tauri-apps/api/core');
     // Hang the initial get_full_setup_status forever — the withTimeout wrapper
     // must convert this into the error + Retry UI instead of an eternal spinner.
-    (invoke as ReturnType<typeof vi.fn>).mockImplementationOnce(() => new Promise(() => {}));
+    mockInvokePending('get_full_setup_status');
 
     render(<OnboardingScreen onComplete={onComplete} />);
     expect(screen.getByText('Checking setup status...')).toBeInTheDocument();
@@ -1135,9 +1132,10 @@ describe('OnboardingScreen', () => {
       mockInvoke('get_full_setup_status', status);
 
       // Mock batch install to fail
-      invokeResults.set('install_brew_packages', {
-        error: new Error('[install_brew_packages] Failed to install node: network timeout'),
-      });
+      mockInvokeErr(
+        'install_brew_packages',
+        new Error('[install_brew_packages] Failed to install node: network timeout')
+      );
 
       render(<OnboardingScreen onComplete={onComplete} />);
 
@@ -1407,9 +1405,10 @@ describe('OnboardingScreen', () => {
       mockInvoke('get_full_setup_status', status);
 
       // Error with backend prefix like [install_brew_packages]
-      invokeResults.set('install_brew_packages', {
-        error: new Error('[install_brew_packages] brew: command not found'),
-      });
+      mockInvokeErr(
+        'install_brew_packages',
+        new Error('[install_brew_packages] brew: command not found')
+      );
 
       render(<OnboardingScreen onComplete={onComplete} />);
 
@@ -1445,9 +1444,7 @@ describe('OnboardingScreen', () => {
         type: 'Other',
         message: 'Failed to install OpenJS.NodeJS: winget exited with status 1',
       };
-      invokeResults.set('install_brew_packages', {
-        error: commandError as unknown as Error,
-      });
+      mockInvokeRejected('install_brew_packages', commandError);
 
       render(<OnboardingScreen onComplete={onComplete} />);
 
@@ -1475,9 +1472,7 @@ describe('OnboardingScreen', () => {
       const status = makeSetupStatus({ items, detectedAgents: [] });
       mockInvoke('get_full_setup_status', status);
 
-      invokeResults.set('install_brew_packages', {
-        error: new Error(''),
-      });
+      mockInvokeErr('install_brew_packages', new Error(''));
 
       render(<OnboardingScreen onComplete={onComplete} />);
 
@@ -2084,8 +2079,6 @@ describe('OnboardingScreen', () => {
   describe('terminal cancel for auth items', () => {
     it('cancel triggers immediate status refresh', async () => {
       mockInvoke('get_full_setup_status', FRESH_STATUS);
-      const { invoke } = await import('@tauri-apps/api/core');
-      const invokeMock = invoke as ReturnType<typeof vi.fn>;
 
       render(<OnboardingScreen onComplete={onComplete} />);
 
@@ -2103,9 +2096,7 @@ describe('OnboardingScreen', () => {
         expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
       });
 
-      const callCountBefore = invokeMock.mock.calls.filter(
-        (c: string[]) => c[0] === 'get_full_setup_status'
-      ).length;
+      const callCountBefore = getInvokeCalls('get_full_setup_status').length;
 
       // Cancel terminal
       act(() => {
@@ -2114,9 +2105,7 @@ describe('OnboardingScreen', () => {
 
       // Should trigger a fetch
       await waitFor(() => {
-        const callCountAfter = invokeMock.mock.calls.filter(
-          (c: string[]) => c[0] === 'get_full_setup_status'
-        ).length;
+        const callCountAfter = getInvokeCalls('get_full_setup_status').length;
         expect(callCountAfter).toBeGreaterThan(callCountBefore);
       });
     });
@@ -2129,9 +2118,6 @@ describe('OnboardingScreen', () => {
       mockInvoke('get_full_setup_status', CLAUDE_ONLY_STATUS);
       mockInvoke('set_default_agent_id', undefined);
 
-      const { invoke } = await import('@tauri-apps/api/core');
-      const invokeMock = invoke as ReturnType<typeof vi.fn>;
-
       render(<OnboardingScreen onComplete={onComplete} />);
 
       await waitFor(() => {
@@ -2139,19 +2125,14 @@ describe('OnboardingScreen', () => {
       });
 
       // Verify set_default_agent_id was called with 'claude-code'
-      const setDefaultCalls = invokeMock.mock.calls.filter(
-        (c: string[]) => c[0] === 'set_default_agent_id'
-      );
+      const setDefaultCalls = getInvokeCalls('set_default_agent_id');
       expect(setDefaultCalls.length).toBe(1);
-      expect(setDefaultCalls[0][1]).toEqual({ agentId: 'claude-code' });
+      expect(setDefaultCalls[0].args).toEqual({ agentId: 'claude-code' });
     });
 
     it('codex-only auto-sets codex as default', async () => {
       mockInvoke('get_full_setup_status', CODEX_ONLY_STATUS);
       mockInvoke('set_default_agent_id', undefined);
-
-      const { invoke } = await import('@tauri-apps/api/core');
-      const invokeMock = invoke as ReturnType<typeof vi.fn>;
 
       render(<OnboardingScreen onComplete={onComplete} />);
 
@@ -2159,11 +2140,9 @@ describe('OnboardingScreen', () => {
         expect(screen.getByText("You're all set!")).toBeInTheDocument();
       });
 
-      const setDefaultCalls = invokeMock.mock.calls.filter(
-        (c: string[]) => c[0] === 'set_default_agent_id'
-      );
+      const setDefaultCalls = getInvokeCalls('set_default_agent_id');
       expect(setDefaultCalls.length).toBe(1);
-      expect(setDefaultCalls[0][1]).toEqual({ agentId: 'codex' });
+      expect(setDefaultCalls[0].args).toEqual({ agentId: 'codex' });
     });
 
     it('both agents detected does not auto-set default (user must choose)', async () => {
@@ -2172,9 +2151,6 @@ describe('OnboardingScreen', () => {
       mockInvoke('get_full_setup_status', BOTH_AGENTS_STATUS);
       mockInvoke('set_default_agent_id', undefined);
 
-      const { invoke } = await import('@tauri-apps/api/core');
-      const invokeMock = invoke as ReturnType<typeof vi.fn>;
-
       render(<OnboardingScreen onComplete={onComplete} />);
 
       await waitFor(() => {
@@ -2182,9 +2158,7 @@ describe('OnboardingScreen', () => {
       });
 
       // With both agents, handleAllComplete doesn't call set_default_agent_id
-      const setDefaultCalls = invokeMock.mock.calls.filter(
-        (c: string[]) => c[0] === 'set_default_agent_id'
-      );
+      const setDefaultCalls = getInvokeCalls('set_default_agent_id');
       expect(setDefaultCalls.length).toBe(0);
     });
 
@@ -2208,20 +2182,15 @@ describe('OnboardingScreen', () => {
       mockInvoke('get_default_agent_id', null); // unset → effective default is claude-code
       mockInvoke('set_default_agent_id', undefined);
 
-      const { invoke } = await import('@tauri-apps/api/core');
-      const invokeMock = invoke as ReturnType<typeof vi.fn>;
-
       render(<OnboardingScreen onComplete={onComplete} />);
 
       await waitFor(() => {
         expect(screen.getByText("You're all set!")).toBeInTheDocument();
       });
 
-      const setDefaultCalls = invokeMock.mock.calls.filter(
-        (c: string[]) => c[0] === 'set_default_agent_id'
-      );
+      const setDefaultCalls = getInvokeCalls('set_default_agent_id');
       expect(setDefaultCalls.length).toBe(1);
-      expect(setDefaultCalls[0][1]).toEqual({ agentId: 'codex' });
+      expect(setDefaultCalls[0].args).toEqual({ agentId: 'codex' });
     });
 
     it('fast path with multiple agents keeps a persisted default that is among them', async () => {
@@ -2241,18 +2210,13 @@ describe('OnboardingScreen', () => {
       mockInvoke('get_default_agent_id', 'opencode');
       mockInvoke('set_default_agent_id', undefined);
 
-      const { invoke } = await import('@tauri-apps/api/core');
-      const invokeMock = invoke as ReturnType<typeof vi.fn>;
-
       render(<OnboardingScreen onComplete={onComplete} />);
 
       await waitFor(() => {
         expect(screen.getByText("You're all set!")).toBeInTheDocument();
       });
 
-      const setDefaultCalls = invokeMock.mock.calls.filter(
-        (c: string[]) => c[0] === 'set_default_agent_id'
-      );
+      const setDefaultCalls = getInvokeCalls('set_default_agent_id');
       expect(setDefaultCalls.length).toBe(0);
     });
   });

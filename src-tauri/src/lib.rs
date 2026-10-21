@@ -80,6 +80,24 @@ fn cleanup_agent_processes() {
     }
 }
 
+/// Use the Vite server for `tauri dev`; packaged builds must use bundled
+/// assets. The main window is built programmatically, so Tauri cannot apply
+/// `build.devUrl` automatically as it would for a window declared in config.
+fn main_webview_url() -> Result<tauri::WebviewUrl, String> {
+    if cfg!(debug_assertions) {
+        let port = std::env::var("SHIPSTUDIO_DEV_PORT")
+            .ok()
+            .and_then(|value| value.parse::<u16>().ok())
+            .filter(|value| *value != 0)
+            .unwrap_or(1420);
+        let dev_url = url::Url::parse(&format!("http://127.0.0.1:{port}"))
+            .map_err(|error| format!("Invalid development server URL: {error}"))?;
+        return Ok(tauri::WebviewUrl::External(dev_url));
+    }
+
+    Ok(tauri::WebviewUrl::App("index.html".into()))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Sentry must init before the tracing subscriber so its layer can attach.
@@ -180,7 +198,10 @@ pub fn run() {
                 let mut main_builder = tauri::WebviewWindowBuilder::new(
                     _app,
                     "main",
-                    tauri::WebviewUrl::App("index.html".into()),
+                    main_webview_url().unwrap_or_else(|error| {
+                        tracing::error!(%error, "Failed to build development server URL");
+                        tauri::WebviewUrl::App("index.html".into())
+                    }),
                 )
                 .title("Ship Studio")
                 .inner_size(1400.0, 900.0)
@@ -434,8 +455,11 @@ pub fn run() {
 
                 // Stop preview proxy and static server for this window (the
                 // agent bridge is global — it lives for the app's lifetime)
-                proxy::stop_preview_proxy(&label);
-                static_server::stop_static_server(&label);
+                let server_window_label = label.clone();
+                tauri::async_runtime::spawn(async move {
+                    proxy::stop_preview_proxies_for_window(&server_window_label).await;
+                    static_server::stop_static_servers_for_window(&server_window_label).await;
+                });
 
                 // Kill PTY processes (dev server, etc.) owned by this window
                 let killed = commands::pty::kill_window_pty_sync(&label);
@@ -468,8 +492,10 @@ pub fn run() {
                     );
                     cleanup_agent_processes();
                     commands::setup::cleanup_auth_processes_sync();
-                    proxy::stop_all_proxies();
-                    static_server::stop_all_static_servers();
+                    tauri::async_runtime::spawn(async move {
+                        proxy::stop_all_proxies().await;
+                        static_server::stop_all_static_servers().await;
+                    });
                     // Mobile previews are torn down per-window above
                     // (teardown_mobile_previews_for_window_sync), so there's no
                     // global sim shutdown to do here.
@@ -582,10 +608,12 @@ pub fn run() {
             commands::edit_structure::duplicate_element,
             commands::edit_structure::paste_element,
             commands::edit_structure::delete_element,
+            commands::edit_structure::move_element,
             commands::edit_css::resolve_css_rule,
             commands::edit_css::set_css_declaration,
             commands::edit_css::add_css_variable,
             commands::edit_css::set_css_variable,
+            commands::edit_css::reorder_css_variables,
             commands::edit_css::analyze_css_variable_deletion,
             commands::edit_css::delete_css_variable,
             commands::edit_css::create_css_class,
@@ -663,6 +691,8 @@ pub fn run() {
             commands::settings::set_slack_cta_hidden,
             commands::settings::get_spotify_widget_enabled,
             commands::settings::set_spotify_widget_enabled,
+            commands::settings::get_keep_dev_servers_running,
+            commands::settings::set_keep_dev_servers_running,
             commands::spotify::get_spotify_state,
             commands::spotify::spotify_control,
             commands::settings::get_dashboard_header_hidden,
@@ -770,6 +800,8 @@ pub fn run() {
             // Pull requests
             commands::pull_requests::list_pull_requests,
             commands::pull_requests::create_pull_request,
+            commands::issue_reports::get_issue_report_context,
+            commands::issue_reports::submit_github_issue,
             commands::pull_requests::merge_pull_request,
             commands::pull_requests::checkout_pull_request,
             commands::pull_requests::close_pull_request,
@@ -908,6 +940,7 @@ pub fn run() {
             logging::log_frontend_event,
             // Error reporting (admin agent)
             error_reporting::report_frontend_error,
+            error_reporting::get_automatic_report_status,
             // Snapshots / Undo-Redo
             commands::snapshots::snapshot_start_watching,
             commands::snapshots::snapshot_stop_watching,

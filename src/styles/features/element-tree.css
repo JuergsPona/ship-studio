@@ -5,6 +5,7 @@
   grid-area: 1 / 1 / -1 / 2;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   min-height: 0;
   min-width: 0;
   background: var(--surface-panel);
@@ -30,9 +31,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
-  color: var(--text-primary);
-  font-size: var(--font-size-body-lg);
+}
+
+.ss-tree-panel--view-only .ss-tree-panel__title {
+  margin-right: auto;
 }
 
 /* Visual / Code toggle in the header. */
@@ -44,7 +46,7 @@
 .ss-tree-panel__view-only {
   flex: 0 1 auto;
   min-width: 0;
-  margin-left: auto;
+  margin-left: var(--spacing-sm);
   overflow: hidden;
   color: var(--text-muted);
   font-size: var(--font-size-badge);
@@ -120,22 +122,37 @@
   overflow: hidden;
 }
 
-.ss-tree-panel__footer {
+.ss-tree-panel__controls {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   flex-shrink: 0;
-  padding: var(--spacing-xs) var(--spacing-md);
-  border-top: var(--border-width-default) solid var(--border-subtle);
+  padding: var(--spacing-sm);
   background: var(--surface-panel);
 }
 
-.ss-tree-panel__tag-toggle {
+.ss-tree-panel__controls-start {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2xs);
+}
+
+.ss-tree-panel__preference-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2xs);
+  padding: var(--spacing-3xs);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-control);
+}
+
+.ss-tree-panel__preference-toggle {
   color: var(--text-muted);
 }
 
-.ss-tree-panel__tag-toggle:hover:not(:disabled),
-.ss-tree-panel__tag-toggle[aria-pressed='true'] {
+.ss-tree-panel__preference-toggle:hover:not(:disabled),
+.ss-tree-panel__preference-toggle[aria-pressed='true'] {
   color: var(--text-primary);
 }
 
@@ -198,6 +215,7 @@
 }
 
 .ss-tree-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -206,12 +224,26 @@
   box-sizing: border-box;
   height: var(--size-control-medium);
   margin-inline: 0;
-  padding-right: var(--spacing-sm);
+  padding-inline-start: calc(
+    var(--element-tree-depth, 0) * var(--size-icon-sm) + var(--spacing-xs)
+  );
+  padding-inline-end: var(--spacing-sm);
   border-radius: var(--radius-sm);
-  cursor: pointer;
+  cursor: default;
   white-space: nowrap;
   overflow: hidden;
   color: var(--text-secondary);
+  transition:
+    padding-inline-start var(--drag-sort-reorder-transition),
+    background-color var(--transition-interaction-fast),
+    box-shadow var(--transition-interaction-fast);
+}
+
+/* Keep the row neutral until the drag manager has crossed the activation
+   threshold. Pointer-down alone is still an ordinary click. */
+.drag-sort__item[data-drag-sort-activation='item']:not(.is-disabled)[data-drag-sort-dragging='true']
+  > .ss-tree-row {
+  cursor: grabbing;
 }
 
 .ss-tree-row:hover,
@@ -239,6 +271,37 @@
 .ss-tree-row.affected {
   background: color-mix(in srgb, var(--color-orange-400) 14%, transparent);
   color: var(--color-orange-400);
+}
+
+/* Tree drop zones are deliberately richer than the ordinary sortable gap:
+   before/after use the shared edge marker, while a valid inside target gets a
+   contained highlight so nesting is legible without changing source state.
+   The transition is state-based so changing direction mid-drag can reverse
+   cleanly. */
+.drag-sort__item.is-target[data-drag-sort-placement='inside'] > .ss-tree-row,
+.drag-sort__target.is-target[data-drag-sort-placement='inside'] {
+  background: var(--surface-selected);
+  box-shadow: inset 0 0 0 var(--border-width-default) var(--accent-focus);
+}
+
+.drag-sort__item.is-target[data-drag-sort-invalid='true'] > .ss-tree-row,
+.drag-sort__target.is-target[data-drag-sort-invalid='true'] {
+  background: var(--surface-control-hover);
+  color: var(--text-muted);
+  box-shadow: none;
+}
+
+.drag-sort__item[data-drag-sort-placement='inside']::after,
+.drag-sort__target[data-drag-sort-placement='inside']::after {
+  content: none;
+}
+
+.drag-sort__item[data-drag-sort-target-indicator='true'].is-target[data-drag-sort-placement='before']::after,
+.drag-sort__item[data-drag-sort-target-indicator='true'].is-target[data-drag-sort-placement='after']::after {
+  inset-inline-start: calc(
+    var(--drag-sort-tree-depth, 0) * var(--size-icon-sm) + var(--spacing-xs)
+  );
+  inset-inline-end: var(--spacing-xs);
 }
 
 .ss-tree-chevron {
@@ -288,6 +351,25 @@
   font-family: var(--font-code);
 }
 
+.ss-tree-panel--sans-serif .ss-tree-tag,
+.ss-tree-panel--sans-serif .ss-tree-class {
+  font-family: var(--font-ui);
+}
+
+/* Neutral mode keeps tags brighter than classes and page copy lightest. */
+.ss-tree-panel--monochrome .ss-tree-tag,
+.ss-tree-panel--monochrome .ss-tree-tag-icon {
+  color: var(--text-secondary);
+}
+
+.ss-tree-panel--monochrome .ss-tree-class {
+  color: var(--text-muted);
+}
+
+.ss-tree-panel--monochrome .ss-tree-text {
+  color: var(--text-primary);
+}
+
 .ss-tree-text {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -299,4 +381,10 @@
 .ss-tree-panel__note {
   padding: var(--spacing-md);
   color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ss-tree-row {
+    transition: none;
+  }
 }

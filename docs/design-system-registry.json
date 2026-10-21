@@ -68,6 +68,7 @@
         "primary",
         "secondary",
         "danger",
+        "success",
         "ghost",
         "warning",
         "variable"
@@ -266,6 +267,53 @@
       "example": "docs/design-system.md#development-primitive-lab",
       "tests": [
         "src/components/primitives/Dropdown.test.tsx"
+      ],
+      "lifecycle": "canonical"
+    },
+    {
+      "name": "DragSort family",
+      "file": "src/components/primitives/DragSort.tsx",
+      "exports": [
+        "DragSortHandle",
+        "DragSortHandleProps",
+        "DragSortItem",
+        "DragSortItemProps",
+        "DragSortTarget"
+      ],
+      "purpose": "Dependency-free sortable item, nested drop-target, and handle primitives backed by a scoped pointer and keyboard drag-sort manager.",
+      "owner": "primitives/interaction",
+      "props": [
+        "id",
+        "group",
+        "index",
+        "label",
+        "disabled",
+        "targetDisabled",
+        "collisionPriority",
+        "overlay",
+        "native item and handle attributes",
+        "target native div attributes"
+      ],
+      "variants": [
+        "vertical",
+        "horizontal",
+        "pointer",
+        "keyboard"
+      ],
+      "states": [
+        "idle",
+        "pending",
+        "dragging",
+        "target",
+        "dropping",
+        "cancelled",
+        "reduced motion"
+      ],
+      "accessibility": "Provides a focusable labelled handle, scope instructions, polite live announcements, keyboard sorting, and focus restoration after commit or cancellation.",
+      "style": "src/styles/components/drag-sort.css",
+      "example": "src/components/workspace/WorkspaceLayoutMenu.tsx#WorkspaceLayoutMenu",
+      "tests": [
+        "src/components/primitives/DragSort.test.tsx"
       ],
       "lifecycle": "canonical"
     },

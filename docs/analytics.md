@@ -103,7 +103,7 @@ events but does not emit pageviews — the `setup_*` funnel below is the record.
 
 | Event | Properties |
 |---|---|
-| `setting_changed` | `setting`, `value` — one event for every settings toggle. `setting` is one of `analytics` (only ever `true`; the opt-out can't send), `calendar_visible`, `terminal_gpu`, `compact_workspace_toolbar`, `thumbnails`, `spotify_widget`, `projects_root` (`value` is whether the root is now custom) |
+| `setting_changed` | `setting`, `value` — one event for every settings toggle. `setting` is one of `analytics` (only ever `true`; the opt-out can't send), `calendar_visible`, `terminal_gpu`, `compact_workspace_toolbar`, `thumbnails`, `spotify_widget`, `keep_dev_servers_running`, `projects_root` (`value` is whether the root is now custom) |
 | `thumbnail_consent_answered` | `allowed` — the user's answer to the first-run "Preview thumbnails" explainer (#160) |
 
 ### Dev server & dependencies
@@ -133,6 +133,7 @@ events but does not emit pageviews — the `setup_*` funnel below is the record.
 | `preview_breakpoint_changed` | `breakpoint` |
 | `preview_size_applied` | `width`, `has_height` (exact size set from the dimensions popover) |
 | `preview_canvas_toggled` | `enabled` — the breakpoint canvas (every breakpoint side by side) was turned on or off |
+| `preview_url_entered` | `has_query`, `has_hash` — a typed URL (path, query or hash) was loaded from the page switcher |
 | `preview_canvas_frame_activated` | `breakpoint` (`desktop`/`laptop`/`tablet`/`mobile`) — a canvas frame was made the active, editable one |
 | `preview_fix_with_agent` | `has_logs`, `is_static`, `reason` (`server-down`/`blank-iframe`), `process_gone` |
 | `preview_connect_stopped` | `retry_count` — the preview gave up connecting; a fault signal |

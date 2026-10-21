@@ -1,4 +1,6 @@
 import { commentAgents } from '../../lib/commentAgents';
+import type { WorkspaceViewProps } from './workspaceViewTypes';
+export type { WorkspaceViewProps } from './workspaceViewTypes';
 /**
  * Workspace view component.
  *
@@ -11,31 +13,24 @@ import { commentAgents } from '../../lib/commentAgents';
  * @module components/WorkspaceView
  */
 
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-  type RefObject,
-} from 'react';
+import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { logger } from '../../lib/logger';
 import { setTerminalState } from '../../lib/project';
-import type { PreviewHandle, InspectTab } from '../preview/Preview';
-import { TREE_PANEL_MIN_WIDTH_PX } from '../preview/panelSizing';
-import { SplitPane } from './SplitPane';
+import type { InspectTab } from '../preview/Preview';
 import { CompactWorkspace } from './CompactWorkspace';
 import { MainBranchBanner } from '../branches/MainBranchBanner';
-import type { HealthTabPanelRef } from '../code/HealthTabPanel';
-import type { DevServerUnexpectedExit } from '../../hooks/useDevServer';
 import { useIsCompact } from '../../hooks/useIsCompact';
 import { useLocalStorageFlag } from '../../hooks/useLocalStorageFlag';
 import { WorkspaceModalHost } from './WorkspaceModalHost';
 import { WorkspaceModes } from './WorkspaceModes';
+import { WorkspaceDock } from './WorkspaceDock';
+import { WorkspaceLayoutMenu } from './WorkspaceLayoutMenu';
 import { WorkspacePreviewPane } from './WorkspacePreviewPane';
 import { WorkspaceTerminalPane } from './WorkspaceTerminalPane';
+import { PanelDockProvider, usePanelDock } from '../../contexts/PanelDockContext';
+import { useLayoutCommands } from '../../commands/useLayoutCommands';
+import { isDocked } from '../../lib/workspaceLayout';
 import { WorkspaceHeader } from './WorkspaceHeader';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
 import { trackEvent } from '../../lib/analytics';
@@ -43,22 +38,9 @@ import { useWorkspaceCommands } from '../../commands/useWorkspaceCommands';
 import { useSnapshots } from '../../hooks/useSnapshots';
 import { useWorktreeWorkflow } from '../../hooks/useWorktreeWorkflow';
 import { WorkspacePluginsSlot } from '../plugins/WorkspacePluginsSlot';
-import type { AgentConfig } from '../../lib/agent';
-import type { Project } from '../../lib/project';
-import { type ProjectType } from '../../lib/static-server';
 import { useShopifyTheme } from '../../hooks/useShopifyTheme';
 import { isMac } from '../../lib/setup';
 import { kbd } from '../../lib/shortcuts';
-import type { TerminalTab } from '../../hooks/useTerminalManagement';
-import type { AgentStatus, TerminalHandle } from '../terminal/Terminal';
-import type { Toast, ToastType } from '../../hooks/useToasts';
-import type { NotificationSettings } from '../../lib/sounds';
-import type { IntegrationState, AuthTerminalConfig } from '../../hooks/useIntegrationStatus';
-import type { BranchInfo, PullRequestInfo } from '../../lib/branches';
-import type { ChangedFile } from '../../lib/git';
-import type { LoadedPlugin, PluginFailure } from '../../hooks/usePlugins';
-import type { PluginThemeData } from '../../contexts/PluginContext';
-import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { useModal } from '../../contexts/ModalContext';
 import { sessionRegistry } from '../../lib/sessionRegistry';
 import { defaultWorkspaceTab, workspacePreviewCapabilities } from './workspaceViewState';
@@ -66,321 +48,27 @@ import { useWorkspaceShortcutControls } from '../../hooks/useWorkspaceShortcutCo
 import { useWorkspacePanelCommands } from '../../hooks/useWorkspacePanelCommands';
 import { useWorkspaceComments } from '../../hooks/useWorkspaceComments';
 import { useWorkspaceVariablesPanel } from '../../hooks/useWorkspaceVariablesPanel';
+import { useWorkspaceTerminalShortcuts } from '../../hooks/useWorkspaceTerminalShortcuts';
 import '../../styles/features/notifications.css';
 
-// ---------------------------------------------------------------------------
-// Domain-grouped prop interfaces
-// ---------------------------------------------------------------------------
+/**
+ * The workspace, with a rail around it.
+ *
+ * The panel layout is a context because five different panels — three of them
+ * rendered from inside `Preview` — need to agree on it, and a prop chain
+ * through the preview pane to reach the visual editor would have been five
+ * levels deep. The provider is a separate component from the view for the
+ * ordinary reason: a component cannot consume a context it provides.
+ */
+export const WorkspaceView = memo(function WorkspaceView(props: WorkspaceViewProps) {
+  return (
+    <PanelDockProvider projectPath={props.currentProject.path}>
+      <WorkspaceViewInner {...props} />
+    </PanelDockProvider>
+  );
+});
 
-interface TerminalSessionView {
-  projectPath: string;
-  tabs: TerminalTab[];
-  activeTabId: number;
-  sessionEpoch: number;
-}
-
-interface TerminalProps {
-  terminalTabs: TerminalTab[];
-  activeTerminalTab: number;
-  terminalSessionId: number;
-  /** Every active project's tab state — render Terminal components for
-   *  all, hide non-current via CSS so PTYs stay alive. */
-  allSessions: TerminalSessionView[];
-  terminalRefsMap: React.MutableRefObject<Map<string, TerminalHandle | null>>;
-  maxTerminalTabs: number;
-  setActiveTerminalTab: (id: number) => void;
-  addTerminalTab: () => void;
-  closeTerminalTab: (id: number) => void;
-  focusActiveTerminal: () => void;
-  switchTabAgent: (tabId: number, agentId: string) => void;
-  restartTerminalTab: (tabId: number, projectPath?: string) => void;
-  /** Forget a tab's opening prompt once its agent has spawned with it. */
-  clearInitialPrompt: (tabId: number, projectPath?: string) => void;
-  getActiveTabAgent: () => AgentConfig;
-  /** Side-by-side view: tab ids visible in panes, or null when off. */
-  splitPaneTabIds: number[] | null;
-  /** Width of each pane as a percentage (sums to 100). Null when split off. */
-  splitPaneSizes: number[] | null;
-  enableSplitView: () => void;
-  disableSplitView: () => void;
-  setSplitPaneTab: (paneIndex: number, tabId: number) => void;
-  addSplitPane: (tabId?: number) => void;
-  removeSplitPane: (paneIndex: number) => void;
-  setSplitPaneSizes: (sizes: number[]) => void;
-}
-
-interface DevServerProps {
-  hasDevServer: boolean;
-  knownDevServerPort: number | null;
-  healthPanelRef: RefObject<HealthTabPanelRef | null>;
-  devServerPort: number;
-  projectType: ProjectType;
-  projectTypeResolved: boolean;
-  isRestartingDevServer: boolean;
-  customDevCommand: string | null;
-  devServerOutput: string;
-  devServerOutputVersion: number;
-  healthOutput: string;
-  healthOutputVersion: number;
-  handleHealthOutput: (data: string) => void;
-  needsInstall: { packageManager: string } | null;
-  /** Set when the dev-server process died without Ship Studio stopping it
-   *  (crash / external kill). Lets the Preview offer a real process restart. */
-  devServerUnexpectedExit: DevServerUnexpectedExit | null;
-  onRunInstall: () => void;
-  /** Path-scoped install trigger — used to auto-install a fresh worktree's
-   *  dependencies without waiting for the Preview CTA click. */
-  onRunInstallFor: (projectPath: string, packageManager: string) => void;
-  /** Type into the dev-server PTY (interactive CLI prompts in the logs pane). */
-  onDevServerInput: (data: string) => void;
-  /** Sync the dev-server PTY size to the logs terminal. */
-  onDevServerResize: (cols: number, rows: number) => void;
-}
-
-interface NotificationProps {
-  notificationSettings: NotificationSettings;
-  showNotificationSettings: boolean;
-  setShowNotificationSettings: (show: boolean) => void;
-  attentionTabs: Set<number>;
-  setAttentionTabs: React.Dispatch<React.SetStateAction<Set<number>>>;
-  createTabStatusHandler: (
-    projectPath: string,
-    tabId: number
-  ) => (status: AgentStatus, title: string) => void;
-  handleSaveNotificationSettings: (settings: NotificationSettings) => void;
-}
-
-interface IntegrationProps {
-  integrations: IntegrationState;
-  handleGitHubConnect: () => void;
-  authTerminalConfig: AuthTerminalConfig | null;
-  closeAuthTerminal: () => void;
-  handleAuthTerminalExit: (exitCode: number | null, projectPath?: string) => void;
-  installTerminalConfig: {
-    projectPath: string;
-    packageManager: string;
-    cwd: string;
-    args: string[];
-  } | null;
-  installTerminalExited: boolean;
-  onCloseInstallTerminal: () => void;
-  onInstallTerminalExit: (exitCode: number | null, outputTail: string) => void;
-}
-
-interface ScreenshotProps {
-  isCapturing: boolean;
-  isCropMode: boolean;
-  setIsCropMode: (mode: boolean) => void;
-  isCropCapturing: boolean;
-  isFullPageCapturing: boolean;
-  screenshotPreviewPath: string | null;
-  setScreenshotPreviewPath: (path: string | null) => void;
-  showScreenshotModal: boolean;
-  setShowScreenshotModal: (show: boolean) => void;
-  handleCaptureScreenshot: () => Promise<void>;
-  handleCaptureFullPage: () => Promise<void>;
-  handleCropStart: () => void;
-  handleCropComplete: (filePath: string | null) => void;
-  handleCropCancel: () => void;
-}
-
-interface LayoutProps {
-  showHealthLogs: boolean;
-  setShowHealthLogs: (show: boolean) => void;
-  isPreviewHidden: boolean;
-  setIsPreviewHidden: (hidden: boolean) => void;
-  workspaceTab: 'preview' | 'code' | 'branches' | 'prs';
-  setWorkspaceTab: (tab: 'preview' | 'code' | 'branches' | 'prs') => void;
-}
-
-interface PluginStateProps {
-  pluginTerminal: {
-    command: string;
-    args: string[];
-    title: string;
-    resolve: (exitCode: number | null) => void;
-  } | null;
-  pluginTerminalExited: boolean;
-  closePluginTerminal: () => void;
-  handlePluginTerminalExit: (exitCode: number | null) => void;
-  pluginSuggestion: { pluginName: string; projectPath: string; repoUrl: string } | null;
-  setPluginSuggestion: (s: null) => void;
-  pluginSuggestionInstalling: boolean;
-  installSuggestedPlugin: (
-    onSuccess: (msg: string) => void,
-    onError: (msg: string) => void,
-    reloadPlugins: () => Promise<void>
-  ) => Promise<void>;
-}
-
-interface ModalProps {
-  isEducationMode: boolean;
-  setIsEducationMode: (mode: boolean) => void;
-  closeEducation: () => void;
-}
-
-interface ToastProps {
-  toasts: Toast[];
-  showToast: (message: string, type?: ToastType) => void;
-  dismissToast: (id: number) => void;
-}
-
-interface BranchProps {
-  currentBranch: string | null;
-  branches: BranchInfo[];
-  openPRs: PullRequestInfo[];
-  hasUncommittedChanges: boolean;
-  changedFiles: ChangedFile[];
-  showSubmitReview: string | null;
-  setShowSubmitReview: (branch: string | null) => void;
-  isBranchSwitching: boolean;
-  isPulling: boolean;
-  gitError: {
-    errorType: 'push_rejected' | 'auth_error' | 'merge_conflict' | 'generic';
-    message: string;
-    branchName: string;
-  } | null;
-  setGitError: (
-    error: {
-      errorType: 'push_rejected' | 'auth_error' | 'merge_conflict' | 'generic';
-      message: string;
-      branchName: string;
-    } | null
-  ) => void;
-  showConflictResolution: boolean;
-  setShowConflictResolution: (show: boolean) => void;
-  /** Whether the repository is mid-merge, as opposed to whether the resolution
-   *  panel is on screen. Polled, so a merge started in a terminal counts. */
-  repoHasConflicts: boolean;
-  fetchBranchInfo: (projectPath: string) => Promise<void>;
-  checkGitStatus: (projectPath: string) => Promise<void>;
-  handleBranchSwitch: (branchName: string) => Promise<void>;
-  handlePullLatest: () => Promise<void>;
-  handlePublishError: (
-    error: string,
-    errorType: 'push_rejected' | 'auth_error' | 'merge_conflict' | 'generic'
-  ) => void;
-  handleResolveConflicts: (headBranch?: string, baseBranch?: string) => Promise<void>;
-  handleConflictsResolved: () => void;
-}
-
-interface PluginProps {
-  loadedPlugins: LoadedPlugin[];
-  pluginFailures: PluginFailure[];
-  getSlotPlugins: (slotName: string) => LoadedPlugin[];
-  reloadPlugins: () => Promise<void>;
-}
-
-interface LifecycleProps {
-  autoAcceptMode: boolean;
-  setCurrentPreviewPage: (page: string) => void;
-  isPublishing: boolean;
-  setIsPublishing: (p: boolean) => void;
-  forcePublishOpen: boolean;
-  setForcePublishOpen: (open: boolean) => void;
-  showAutoAcceptWarning: boolean;
-  setShowAutoAcceptWarning: (show: boolean) => void;
-  handleBackToProjects: () => void;
-  handleRestartDevServer: () => Promise<void>;
-  /** Start the dev server on demand — fired when the Preview tab is selected
-   *  while nothing is running, so picking Preview always yields a preview. */
-  handleStartDevServer: () => Promise<void>;
-  handleGitHubStatusChange: () => void;
-  handlePreviewReady: () => void;
-  sendToClaude: (text: string) => unknown;
-  handleTerminalExit: (code: number | null) => void;
-  handleToolbarAutoAcceptToggle: () => void;
-  handleAutoAcceptWarningAccept: () => void;
-  handleSaveDevCommand: (command: string | null) => void;
-  handleSavePort: (port: number) => void;
-}
-
-// ---------------------------------------------------------------------------
-// WorkspaceViewProps
-// ---------------------------------------------------------------------------
-
-/** Plugin project data as constructed by App.tsx (devServerUrl always present) */
-interface WorkspacePluginProject {
-  name: string;
-  path: string;
-  currentBranch: string;
-  hasUncommittedChanges: boolean;
-  devServerUrl: string;
-}
-
-/** Plugin actions as constructed by App.tsx (showToast includes 'info') */
-interface WorkspacePluginActions {
-  showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
-  refreshGitStatus: () => void;
-  refreshBranches: () => void;
-  focusTerminal: () => void;
-  openUrl: (url: string) => void;
-  openTerminal: (
-    command: string,
-    args: string[],
-    options?: { title?: string }
-  ) => Promise<number | null>;
-}
-
-export interface WorkspaceViewProps {
-  currentProject: Project;
-  previewRef: RefObject<PreviewHandle | null>;
-  terminal: TerminalProps;
-  devServer: DevServerProps;
-  notifications: NotificationProps;
-  integrationStatus: IntegrationProps;
-  screenshots: ScreenshotProps;
-  layout: LayoutProps;
-  pluginState: PluginStateProps;
-  modals: ModalProps;
-  toasts: ToastProps;
-  branchMgmt: BranchProps;
-  plugins: PluginProps;
-  lifecycle: LifecycleProps;
-  pluginProject: WorkspacePluginProject | null;
-  pluginActions: WorkspacePluginActions;
-  pluginTheme: PluginThemeData;
-  /** Project list shown in the workspace sidebar. */
-  projectRows: PinnedProjectRow[];
-  /** Switch to a different project from the sidebar. */
-  onSelectProject: (projectPath: string) => void;
-  /** Close an active project session from the sidebar. */
-  onCloseProject: (projectPath: string) => void;
-  /** Rename a project folder from the sidebar context menu. */
-  onRenameProject?: (projectPath: string, newName: string) => Promise<void>;
-  /** Toggle a project's pin state from the sidebar context menu. */
-  onTogglePinProject?: (projectPath: string, shouldPin: boolean) => void | Promise<void>;
-  /** Stop a project's dev server from the sidebar context menu. */
-  onStopDevServer?: (projectPath: string) => void | Promise<void>;
-  /** Switch to another project and focus a specific tab (by session id). */
-  onSelectProjectTab: (projectPath: string, tabSessionId: string) => void;
-  /** Navigate to the Home (projects) view. */
-  onGoHome: () => void;
-  /** Home-level destinations, kept reachable from inside a project. */
-  homeNav?: {
-    onGoWorkflows: () => void;
-    onGoInbox: () => void;
-    inboxUnreadCount: number;
-  };
-  /** Open the project picker modal. */
-  onOpenProjectPicker: () => void;
-  /** Open the "Switch Workspace" picker from the sidebar footer. */
-  onSwitchAccount: () => void;
-  /** Unpin a project from the sidebar (used for rows without a live session,
-   *  including pins whose folder no longer exists — issue #366). */
-  onUnpinProject?: (projectPath: string) => void;
-  /** Predicate: is a dev server currently tracked for the given project path?
-   *  Used by the sidebar to populate background projects' Commands section. */
-  isProjectDevServerRunning: (projectPath: string) => boolean;
-  /** Whether the shared project sidebar is in its compact state. */
-  isSidebarHidden: boolean;
-  /** Toggle the shared project sidebar between full and compact states. */
-  onToggleSidebar: () => void;
-  /** Whether workspace controls are consolidated into the window titlebar. */
-  compactWorkspaceToolbarEnabled: boolean;
-}
-
-export const WorkspaceView = memo(function WorkspaceView({
+const WorkspaceViewInner = memo(function WorkspaceViewInner({
   currentProject,
   previewRef,
   terminal,
@@ -409,8 +97,11 @@ export const WorkspaceView = memo(function WorkspaceView({
   homeNav,
   onSwitchAccount,
   onUnpinProject,
+  onReorderProjects,
   onOpenProjectPicker,
   isProjectDevServerRunning,
+  getProjectDevServerSnapshot,
+  devServerLifecycleVersion,
   isSidebarHidden,
   onToggleSidebar,
   compactWorkspaceToolbarEnabled,
@@ -418,6 +109,7 @@ export const WorkspaceView = memo(function WorkspaceView({
   // Window-width gate for the compact layout. Purely reactive — no Tauri
   // resize calls, no pinning. See src/hooks/useIsCompact.ts for the threshold.
   const isCompact = useIsCompact();
+  const currentDevServerSnapshot = getProjectDevServerSnapshot(currentProject.path);
 
   // Destructure domain groups for readability in JSX
   const {
@@ -742,18 +434,24 @@ export const WorkspaceView = memo(function WorkspaceView({
   const [isAgentPanelHidden, setIsAgentPanelHidden] = useState(false);
   const [forceBranchesOpen, setForceBranchesOpen] = useState(false);
   const [createBranchRequest, setCreateBranchRequest] = useState(0);
-  const [agentPanelPinned, , toggleAgentPanelPinned] = useLocalStorageFlag(
-    'agentPanelPinned',
-    true
+  // Where the panels are. `useLocalStorageFlag('agentPanelPinned')` and its four
+  // siblings used to answer this one panel at a time; the rail answers all of
+  // them, and knows what order they are in as well as which are docked.
+  const dock = usePanelDock();
+  const agentPanelDocked = isDocked(dock.layout, 'agent');
+  const toggleAgentPanelDocked = useCallback(
+    () => dock.setDocked('agent', !agentPanelDocked),
+    [dock, agentPanelDocked]
   );
   const [elementTreePreviewAvailable, setElementTreePreviewAvailable] = useState(false);
   const [elementTreeVisible, setElementTreeVisible, toggleElementTree] = useLocalStorageFlag(
     'elementTreeVisible',
     true
   );
-  const [elementTreePinned, , toggleElementTreePinned] = useLocalStorageFlag(
-    'elementTreePinned',
-    true
+  const elementTreeDocked = isDocked(dock.layout, 'navigator');
+  const toggleElementTreeDocked = useCallback(
+    () => dock.setDocked('navigator', !elementTreeDocked),
+    [dock, elementTreeDocked]
   );
   const closeElementTree = useCallback(() => {
     setElementTreeVisible(false);
@@ -761,9 +459,10 @@ export const WorkspaceView = memo(function WorkspaceView({
   const elementTreeAvailable =
     workspaceTab === 'preview' && !isPreviewHidden && elementTreePreviewAvailable;
   const elementTreePanelVisible = elementTreeAvailable && elementTreeVisible;
-  const [variablesPanelPinned, , toggleVariablesPanelPinned] = useLocalStorageFlag(
-    'variablesPanelPinned',
-    false
+  const variablesPanelDocked = isDocked(dock.layout, 'variables');
+  const toggleVariablesPanelDocked = useCallback(
+    () => dock.setDocked('variables', !variablesPanelDocked),
+    [dock, variablesPanelDocked]
   );
   const variables = useWorkspaceVariablesPanel({
     isWebProject,
@@ -792,15 +491,17 @@ export const WorkspaceView = memo(function WorkspaceView({
     setShowPreviewLogs(!showPreviewLogs);
   }, [showPreviewLogs]);
 
+  useLayoutCommands();
+
   useWorkspacePanelCommands({
     isAgentPanelHidden,
     toggleAgentPanel,
-    agentPanelPinned,
-    toggleAgentPanelPinned,
-    elementTreePinned,
-    toggleElementTreePinned,
-    variablesPanelPinned,
-    toggleVariablesPanelPinned,
+    agentPanelDocked,
+    toggleAgentPanelDocked,
+    elementTreeDocked,
+    toggleElementTreeDocked,
+    variablesPanelDocked,
+    toggleVariablesPanelDocked,
     isWebProject,
     variablesPanelOpen: variables.open,
     toggleVariablesPanel: variables.toggle,
@@ -932,69 +633,14 @@ export const WorkspaceView = memo(function WorkspaceView({
     startDevServer: handleStartDevServer,
   });
 
-  // Cmd/Ctrl+T to add a new tab and Cmd/Ctrl+W to close the active tab.
-  // Control+1-9 switches terminal/agent tabs; the F1-F10 range remains
-  // available to the operating system and existing app controls.
-  useEffect(() => {
-    const switchTerminalTab = (number: number) => {
-      if (!Number.isInteger(number) || number < 1 || number > 9) return;
-
-      const index = number - 1;
-      const tab = terminalTabs[index];
-      if (!tab) {
-        // Guidance about a keystroke, not a malfunction — 'info' skips the
-        // error-report pipeline (issue #437).
-        showToast(`No terminal tab ${number} — you have ${terminalTabs.length} open`, 'info');
-        return;
-      }
-      setActiveTerminalTab(tab.id);
-    };
-
-    function handleKeyDown(e: KeyboardEvent) {
-      // Cmd+W — close active terminal tab (instead of closing the window)
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === 'w') {
-        e.preventDefault();
-        if (terminalTabs.length > 1) {
-          closeTerminalTab(activeTerminalTab);
-        }
-        return;
-      }
-
-      // Cmd+T — new tab
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === 't') {
-        e.preventDefault();
-        addTerminalTab();
-        return;
-      }
-
-      // Control+1-9 is intentionally distinct from Cmd+Control+1-3, which
-      // belongs to workspace modes. On non-macOS, add Alt because Ctrl+1-9
-      // is the platform's primary-modifier equivalent used for projects.
-      const isTerminalNumberShortcut = isMac()
-        ? e.ctrlKey && !e.metaKey && !e.altKey
-        : e.ctrlKey && e.altKey && !e.metaKey;
-      if (!isTerminalNumberShortcut || e.shiftKey) return;
-      const num = Number(e.key);
-      if (!Number.isInteger(num) || num < 1 || num > 9) return;
-      e.preventDefault();
-      switchTerminalTab(num);
-    }
-    window.addEventListener('keydown', handleKeyDown);
-    const unlisten = listen<number>('switch-terminal-shortcut', ({ payload }) => {
-      switchTerminalTab(payload);
-    });
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      void unlisten.then((fn) => fn());
-    };
-  }, [
+  useWorkspaceTerminalShortcuts({
     terminalTabs,
     activeTerminalTab,
+    setActiveTerminalTab,
     addTerminalTab,
     closeTerminalTab,
-    setActiveTerminalTab,
     showToast,
-  ]);
+  });
 
   // Listen for native menu "Close Tab" (Cmd+W) event from Tauri
   useEffect(() => {
@@ -1063,6 +709,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     variablesPanelVisible: variables.open,
     variablesPanelAvailable: isWebProject,
     onToggleVariablesPanel: variables.toggle,
+    layoutMenu: <WorkspaceLayoutMenu />,
     teamPresence: team.presence,
     modes: modesNode,
     headerExtras: (
@@ -1173,9 +820,12 @@ export const WorkspaceView = memo(function WorkspaceView({
               projects={projectRows}
               onCloseProject={onCloseProject}
               onUnpinProject={onUnpinProject}
+              onReorderProjects={onReorderProjects}
               onRenameProject={onRenameProject}
               onTogglePinProject={onTogglePinProject}
               onStopDevServer={onStopDevServer}
+              getProjectDevServerSnapshot={getProjectDevServerSnapshot}
+              devServerLifecycleVersion={devServerLifecycleVersion}
               currentProjectPath={currentProject.path}
               currentProjectName={currentProject.name}
               onSelectProject={onSelectProject}
@@ -1214,7 +864,9 @@ export const WorkspaceView = memo(function WorkspaceView({
                 isWebProject || customDevCommand ? () => void handleRestartDevServer() : undefined
               }
               devServerUrl={
-                isWebProject && devServerPort > 0 ? `http://localhost:${devServerPort}` : undefined
+                isWebProject && currentDevServerSnapshot.address
+                  ? `http://${currentDevServerSnapshot.address}`
+                  : undefined
               }
               isProjectDevServerRunning={isProjectDevServerRunning}
               worktrees={worktree.worktrees}
@@ -1236,77 +888,12 @@ export const WorkspaceView = memo(function WorkspaceView({
               )}
 
               <div className="workspace-content">
-                {/* In the row, so pinning gives it a column the preview
-                    reflows beside; floating, its placeholder is display:none. */}
-                {team.panel}
-                <SplitPane
-                  defaultSplit={29}
-                  minLeft={20}
-                  minLeftWidthPx={TREE_PANEL_MIN_WIDTH_PX}
-                  minRight={35}
-                  persistenceKey="agentPanelDockedSplit"
-                  rightCollapsed={isPreviewHidden}
-                  leftCollapsed={isAgentPanelHidden || (!agentPanelPinned && !isPreviewHidden)}
-                  left={
-                    <WorkspaceTerminalPane
-                      currentProject={currentProject}
-                      allSessions={allSessions}
-                      terminalTabs={terminalTabs}
-                      activeTerminalTab={activeTerminalTab}
-                      setActiveTerminalTab={setActiveTerminalTab}
-                      terminalRefsMap={terminalRefsMap}
-                      tabTitles={tabTitles}
-                      autoAcceptMode={autoAcceptMode}
-                      getActiveTabAgent={getActiveTabAgent}
-                      handleTerminalExit={handleTerminalExit}
-                      createTabStatusHandler={createTabStatusHandler}
-                      handleTabTitleChange={handleTabTitleChange}
-                      restartTerminalTab={restartTerminalTab}
-                      clearInitialPrompt={clearInitialPrompt}
-                      showHealthLogs={showHealthLogs}
-                      healthOutput={healthOutput}
-                      healthOutputVersion={healthOutputVersion}
-                      sendToClaude={sendToClaude}
-                      isPreviewHidden={isPreviewHidden}
-                      isAgentPanelHidden={isAgentPanelHidden}
-                      agentPanelPinned={agentPanelPinned}
-                      toggleAgentPanelPinned={toggleAgentPanelPinned}
-                      toggleAgentPanel={toggleAgentPanel}
-                      splitPaneTabIds={splitPaneTabIds}
-                      splitPaneSizes={splitPaneSizes}
-                      isSplitActive={isSplitActive}
-                      canSplit={canSplit}
-                      enableSplitView={enableSplitView}
-                      disableSplitView={disableSplitView}
-                      setSplitPaneTab={setSplitPaneTab}
-                      addSplitPane={addSplitPane}
-                      removeSplitPane={removeSplitPane}
-                      setSplitPaneSizes={setSplitPaneSizes}
-                      canUndo={canUndo}
-                      canRedo={canRedo}
-                      undoSnapshot={undoSnapshot}
-                      redoSnapshot={redoSnapshot}
-                      undoTitle={undoTitle}
-                      redoTitle={redoTitle}
-                      isWebProject={isWebProject}
-                      isPreviewCaptureAvailable={previewVisible}
-                      isCapturing={isCapturing}
-                      isCropMode={isCropMode}
-                      isCropCapturing={isCropCapturing}
-                      setIsCropMode={setIsCropMode}
-                      handleCaptureScreenshot={handleCaptureScreenshot}
-                      onNotificationSettings={() => setShowNotificationSettings(true)}
-                      onSkills={skillsModal.open}
-                      onMcp={mcpModal.open}
-                      onAutoAcceptToggle={handleToolbarAutoAcceptToggle}
-                      onHelp={helpModal.open}
-                      terminalPlugins={getSlotPlugins('terminal')}
-                      pluginProject={pluginProject}
-                      pluginActions={pluginActions}
-                      pluginTheme={pluginTheme}
-                    />
-                  }
-                  right={
+                {/* Where a panel is written here has no bearing on where it
+                    appears: each one's placeholder is portaled into whichever
+                    rail slot the layout gives it. This is just the tree. */}
+                <WorkspaceDock
+                  previewHidden={isPreviewHidden}
+                  preview={
                     <WorkspacePreviewPane
                       activeCommentAgentId={activeTerminalTab}
                       commentsOpen={team.commentsActive}
@@ -1318,6 +905,8 @@ export const WorkspaceView = memo(function WorkspaceView({
                       hasPreview={hasPreview}
                       projectTypeResolved={projectTypeResolved}
                       previewConnectionEnabled={knownDevServerPort !== null}
+                      serverAlreadyRunning={currentDevServerSnapshot.status === 'ready'}
+                      serverInstanceId={currentDevServerSnapshot.instanceId}
                       projectType={projectType}
                       isWebProject={isWebProject}
                       mobilePreviewAvailable={mobilePreviewAvailable}
@@ -1354,13 +943,13 @@ export const WorkspaceView = memo(function WorkspaceView({
                       undoSnapshot={undoSnapshot}
                       redoSnapshot={redoSnapshot}
                       elementTreeVisible={elementTreeVisible}
-                      elementTreePinned={elementTreePinned}
-                      toggleElementTreePinned={toggleElementTreePinned}
+                      elementTreePinned={elementTreeDocked}
+                      toggleElementTreePinned={toggleElementTreeDocked}
                       closeElementTree={closeElementTree}
                       setElementTreePreviewAvailable={setElementTreePreviewAvailable}
                       variablesPanelVisible={variables.open}
-                      variablesPanelPinned={variablesPanelPinned}
-                      toggleVariablesPanelPinned={toggleVariablesPanelPinned}
+                      variablesPanelPinned={variablesPanelDocked}
+                      toggleVariablesPanelPinned={toggleVariablesPanelDocked}
                       closeVariablesPanel={() => variables.setVisible(false)}
                       pluginProject={pluginProject}
                       pluginActions={pluginActions}
@@ -1383,7 +972,66 @@ export const WorkspaceView = memo(function WorkspaceView({
                       }}
                     />
                   }
-                />
+                >
+                  <WorkspaceTerminalPane
+                    currentProject={currentProject}
+                    allSessions={allSessions}
+                    terminalTabs={terminalTabs}
+                    activeTerminalTab={activeTerminalTab}
+                    setActiveTerminalTab={setActiveTerminalTab}
+                    terminalRefsMap={terminalRefsMap}
+                    tabTitles={tabTitles}
+                    autoAcceptMode={autoAcceptMode}
+                    getActiveTabAgent={getActiveTabAgent}
+                    handleTerminalExit={handleTerminalExit}
+                    createTabStatusHandler={createTabStatusHandler}
+                    handleTabTitleChange={handleTabTitleChange}
+                    restartTerminalTab={restartTerminalTab}
+                    clearInitialPrompt={clearInitialPrompt}
+                    showHealthLogs={showHealthLogs}
+                    healthOutput={healthOutput}
+                    healthOutputVersion={healthOutputVersion}
+                    sendToClaude={sendToClaude}
+                    isPreviewHidden={isPreviewHidden}
+                    isAgentPanelHidden={isAgentPanelHidden}
+                    agentPanelPinned={agentPanelDocked}
+                    toggleAgentPanelPinned={toggleAgentPanelDocked}
+                    toggleAgentPanel={toggleAgentPanel}
+                    splitPaneTabIds={splitPaneTabIds}
+                    splitPaneSizes={splitPaneSizes}
+                    isSplitActive={isSplitActive}
+                    canSplit={canSplit}
+                    enableSplitView={enableSplitView}
+                    disableSplitView={disableSplitView}
+                    setSplitPaneTab={setSplitPaneTab}
+                    addSplitPane={addSplitPane}
+                    removeSplitPane={removeSplitPane}
+                    setSplitPaneSizes={setSplitPaneSizes}
+                    canUndo={canUndo}
+                    canRedo={canRedo}
+                    undoSnapshot={undoSnapshot}
+                    redoSnapshot={redoSnapshot}
+                    undoTitle={undoTitle}
+                    redoTitle={redoTitle}
+                    isWebProject={isWebProject}
+                    isPreviewCaptureAvailable={previewVisible}
+                    isCapturing={isCapturing}
+                    isCropMode={isCropMode}
+                    isCropCapturing={isCropCapturing}
+                    setIsCropMode={setIsCropMode}
+                    handleCaptureScreenshot={handleCaptureScreenshot}
+                    onNotificationSettings={() => setShowNotificationSettings(true)}
+                    onSkills={skillsModal.open}
+                    onMcp={mcpModal.open}
+                    onAutoAcceptToggle={handleToolbarAutoAcceptToggle}
+                    onHelp={helpModal.open}
+                    terminalPlugins={getSlotPlugins('terminal')}
+                    pluginProject={pluginProject}
+                    pluginActions={pluginActions}
+                    pluginTheme={pluginTheme}
+                  />
+                  {team.panel}
+                </WorkspaceDock>
               </div>
             </div>
             {/* .workspace-main */}

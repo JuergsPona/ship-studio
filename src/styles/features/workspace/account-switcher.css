@@ -227,13 +227,131 @@
   color: var(--text-muted);
 }
 
+/* The settings chooser uses Dropdown's keyboard and dismissal behavior while
+ * expanding in flow above its trigger, inside the sidebar footer. */
+.workspace-sidebar-settings-menu {
+  --workspace-settings-summary-height: var(--control-height-standard);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: var(--workspace-settings-summary-height);
+  height: var(--workspace-settings-summary-height);
+  min-height: var(--workspace-settings-summary-height);
+  max-height: var(--workspace-settings-summary-height);
+  flex: 0 0 auto;
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background: transparent;
+  color: var(--text-secondary);
+  box-shadow: none;
+  transition:
+    width var(--transition-interaction),
+    max-height var(--transition-interaction),
+    background-color var(--transition-interaction),
+    box-shadow var(--transition-interaction);
+}
+
+.workspace-sidebar-settings-menu.is-open {
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  max-height: min(calc(var(--spacing-2xl) * 10), calc(100vh - (var(--spacing-2xl) * 3)));
+  padding: var(--spacing-2xs);
+  background: var(--surface-control);
+  box-shadow: var(--shadow-sm);
+}
+
+.workspace-sidebar-settings-menu .settings-menu {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  position: relative;
+  inset: auto;
+  order: -1;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  max-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0;
+  min-height: 0;
+  transform: translateY(calc(-1 * var(--spacing-xs)));
+  transition:
+    max-height var(--transition-interaction),
+    margin-bottom var(--transition-interaction),
+    padding-top var(--transition-interaction),
+    padding-bottom var(--transition-interaction),
+    opacity var(--transition-interaction),
+    transform var(--transition-interaction);
+}
+
+.workspace-sidebar-settings-menu.is-open .settings-menu {
+  max-height: calc(var(--spacing-2xl) * 8);
+  margin-bottom: var(--spacing-xs);
+  padding: var(--spacing-xs);
+  overflow-y: auto;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.workspace-sidebar-settings-menu .settings-menu .ss-dropdown__item {
+  height: var(--control-height-standard);
+  min-height: var(--control-height-standard);
+  flex: 0 0 var(--control-height-standard);
+  padding-inline: var(--button-padding);
+}
+
+.workspace-sidebar-settings-menu .settings-menu .ss-dropdown__divider {
+  display: none;
+}
+
+.workspace-sidebar-settings-menu > .button--icon-only {
+  align-self: flex-end;
+  flex: 0 0 var(--control-height-standard);
+}
+
+.workspace-sidebar-settings-summary {
+  width: 100%;
+  height: var(--workspace-settings-summary-height);
+  min-height: var(--workspace-settings-summary-height);
+  justify-content: flex-start;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-body-md);
+}
+
+.workspace-sidebar-settings-summary .workspace-switcher-name {
+  flex: 1;
+  text-align: left;
+}
+
 /* Keep the switcher and trailing icon controls in fixed footer columns. In the
  * expanded sidebar, opening the switcher widens its drawer across the trailing
  * controls while the drawer grows upward from the footer. */
-.workspace-sidebar-footer-actions.has-workspace-switcher {
+.workspace-sidebar-footer-actions.has-settings-drawer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) var(--control-height-standard);
   align-items: center;
+  gap: var(--button-group-spacing);
+}
+
+.workspace-sidebar-footer-actions.has-settings-drawer.has-workspace-switcher {
+  grid-template-columns: minmax(0, 1fr) repeat(2, var(--control-height-standard));
+}
+
+.workspace-sidebar-footer-actions.has-settings-drawer > .workspace-sidebar-settings-menu {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  align-self: end;
+  justify-self: end;
+  margin-bottom: var(--spacing-2xs);
 }
 
 .workspace-sidebar-footer-actions.has-workspace-switcher > .workspace-switcher {
@@ -244,6 +362,10 @@
   justify-self: start;
 }
 
+.workspace-sidebar-footer-actions.has-workspace-switcher > .workspace-switcher:not(.is-open) {
+  padding: 0;
+}
+
 .workspace-sidebar:not(.is-hidden)
   .workspace-sidebar-footer-actions.has-workspace-switcher
   > .workspace-switcher.is-open {
@@ -251,8 +373,7 @@
   z-index: var(--z-dropdown);
 }
 
-.workspace-sidebar-footer-actions.has-workspace-switcher > .workspace-sidebar-support,
-.workspace-sidebar-footer-actions.has-workspace-switcher > .workspace-sidebar-settings {
+.workspace-sidebar-footer-actions.has-workspace-switcher > .workspace-sidebar-support {
   grid-row: 1;
   align-self: end;
   margin-bottom: var(--spacing-2xs);
@@ -262,15 +383,27 @@
   grid-column: 2;
 }
 
-.workspace-sidebar-footer-actions.has-workspace-switcher > .workspace-sidebar-settings {
-  grid-column: 3;
+.workspace-sidebar-footer-actions.has-settings-drawer:not(.has-workspace-switcher)
+  > .workspace-sidebar-support {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: end;
+  margin-bottom: var(--spacing-2xs);
+}
+
+.workspace-sidebar-footer-actions.has-settings-drawer > .workspace-sidebar-settings-menu.is-open {
+  width: 100%;
+  align-self: end;
+  margin-bottom: 0;
+  z-index: var(--z-dropdown);
 }
 
 /* The collapsed rail keeps the workspace switcher in the existing vertical
  * icon stack while the expanded picker is rendered outside the rail. */
-.workspace-sidebar.is-hidden .workspace-sidebar-footer-actions.has-workspace-switcher {
+.workspace-sidebar.is-hidden .workspace-sidebar-footer-actions.has-settings-drawer {
   display: flex;
   flex-direction: column;
+  align-items: center;
 }
 
 .workspace-sidebar.is-hidden

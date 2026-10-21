@@ -1,10 +1,12 @@
 # Automatic Error Reporting (Admin Agent)
 
-Ship Studio automatically reports uncaught errors from production builds to the
-Ship Studio admin agent — an AI pipeline that investigates each report against
-the `ship-studio/ship-studio` codebase, files deduplicated GitHub issues, and
-can open draft fix PRs (it cannot merge). This is separate from Sentry, which
-handles aggregation/alerting; the admin agent is the act-on-it pipeline.
+Ship Studio can automatically send uncaught errors from production builds to
+the Ship Studio admin agent — an AI pipeline that investigates reports against
+the `ship-studio/ship-studio` codebase and may file deduplicated GitHub issues
+or open draft fix PRs (it cannot merge). A successful send confirms that the
+endpoint accepted a report; it does not confirm that an investigation finished
+or that an issue was filed. This is separate from Sentry, which handles
+aggregation and alerting.
 
 ## The endpoint
 
@@ -18,6 +20,11 @@ Body fields: `message` (required), `stack`, `source`, `appVersion`,
 `fingerprint`, `context` (JSON object). Get `BUG_REPORT_SECRET` from Julian —
 never commit it.
 
+The client records a delivery receipt only when the endpoint returns a 2xx
+response containing `{ "ok": true }`. A returned issue URL is retained only
+when it is an HTTPS `github.com/<owner>/<repo>/issues/<number>` URL. The
+endpoint's acceptance response is not an issue-filing verdict.
+
 ## What gets reported (coverage map)
 
 The goal: **anything not working as intended reaches the agent**, without
@@ -26,7 +33,7 @@ per-site wiring. Coverage comes from choke points, not scattered calls:
 | Surface | Choke point | Fingerprint |
 |---|---|---|
 | Rust panics | panic hook in `error_reporting.rs` (chained in front of Sentry's) | `panic-<file>:<line>:<col>` |
-| **Every command failure sent to the UI** | `CommandError`'s `Serialize` impl (`errors.rs`) — fires exactly when the rejection crosses IPC, so it also catches structured Validation errors rendered inline with no toast or log | `cmderr-<variant>-<cmd/field>` |
+| Unexpected command failures sent to the UI | `CommandError`'s `Serialize` impl (`errors.rs`) — fires when the rejection crosses IPC; expected states and validation feedback are excluded | `cmderr-<variant>-<cmd/field>` |
 | Any backend `tracing::error!` | `AdminAgentLayer` tracing layer, attached in `logging::init_logging()` | `rs-<file>:<line>` (callsite) |
 | Frontend crashes (ErrorBoundary) | `logger.logError` → forwarding | message-based |
 | Any `logger.error` / `logger.logError` | forwarding inside `Logger.log()` | message-based |
@@ -48,7 +55,9 @@ slug (see below).
 All reporting funnels through **`src-tauri/src/error_reporting.rs`**
 (`report_error` — async fire-and-forget POST, 5s timeout; the
 `report_frontend_error` command relays frontend reports) and
-**`src/lib/errorReporting.ts`** (`reportError`) on the frontend.
+**`src/lib/errorReporting.ts`** (`reportError`) on the frontend. The separate
+`get_automatic_report_status` command and `src/lib/autoReports.ts` wrapper
+expose recent confirmed deliveries to Settings.
 
 ## Cost controls
 
@@ -64,14 +73,28 @@ all of it client-side before a single byte leaves the machine:
    frontend (cap 20) and Rust (cap 25) sides.
 3. **Cross-session refractory** — the same fingerprint reports at most once
    per 24h, persisted in `bug-report-throttle.json` next to `app_state.json`.
-   A crash-looping install that relaunches every few seconds still sends one
-   report per day per bug.
+   This file records attempts for cost control, whether or not the network
+   accepted them. A crash-looping install that relaunches every few seconds
+   still attempts at most one report per day per bug.
 4. **Daily cap** — at most 30 reports per machine per day, whatever happens.
 5. **Server-side dedup** — same fingerprint = same agent session; repeats are
    noted on the existing session, not new investigations.
 
 Throttle I/O fails open (a corrupt/unwritable file falls back to session dedup
 only) — cost protection must never disable crash reporting entirely.
+
+Confirmed delivery receipts live separately in
+`automatic-report-receipts.json`. The ledger keeps at most 50 scrubbed
+summaries for 30 days. It is not an attempt history: throttled, disabled,
+unconfigured, timed-out, rejected, or otherwise unconfirmed sends never create
+a receipt. A missing receipt therefore does not prove that no attempt was
+made or that the endpoint did not accept one; local storage can fail, and the
+panic path can skip a contended receipt write to preserve its timeout. A
+receipt does not say whether the report is still under
+investigation, was considered noise, or was deduplicated against an existing
+agent session. Server-side fingerprint deduplication remains the duplicate
+issue protection; do not tell users an issue is already filed unless an
+explicit, validated issue URL was returned.
 
 ## The rules (enforced in code — keep them when extending)
 
@@ -107,9 +130,13 @@ What is never collected: project file contents, code, env vars, tokens,
 usernames, machine identifiers, or anything else. Reports can end up in public
 GitHub issues, so the bar is "safe to publish."
 
-The ErrorBoundary crash screen shows "This crash was reported automatically"
-only when a report actually went out (production build, toggle on, not a
-plugin crash) — the disclosure is never shown to opted-out users.
+The ErrorBoundary does not claim that its current crash was sent. It directs
+users to Settings for recent confirmed deliveries and explains that a receipt
+means endpoint acceptance, not issue filing. Receipts contain only timestamp,
+crash/error kind, scrubbed source and summary, plus an optional endpoint-returned
+validated GitHub issue URL. The `crash` kind is reserved for Rust panics and
+the explicit React ErrorBoundary `frontend-crash` source; other report sources
+remain `error`.
 
 ## The secret
 

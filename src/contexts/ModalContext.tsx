@@ -27,6 +27,8 @@ export type ModalId =
   | 'sidebarProjectRename'
   | 'notificationSettings'
   | 'settings'
+  | 'bugReport'
+  | 'featureRequest'
   | 'attachedLibraries'
   | 'changelog'
   | 'submitReview'

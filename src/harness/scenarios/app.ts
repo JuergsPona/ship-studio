@@ -6,6 +6,7 @@
 
 import type { Scenario } from '../types';
 import { projects, readySetupItems } from './base';
+import { workspaceCommands, WORKSPACE_PROJECT } from './workspace';
 
 const notInstalled = (id: string, friendlyName: string) => ({
   id,
@@ -20,6 +21,45 @@ export const appScenarios: Scenario[] = [
     title: 'Dashboard — the normal case',
     looksRightWhen:
       'Projects render as cards with readable names, consistent spacing, and no placeholder or "undefined" text anywhere.',
+    commands: {},
+  },
+  {
+    id: 'dashboard-settings-menu',
+    title: 'Dashboard — Preferences menu',
+    looksRightWhen:
+      "The Preferences row opens a compact menu with App Settings, Report Bug, Feature Request, and What's New; the bug row uses the shared BugReportIcon.",
+    openSelector: '[data-education-id="settings-button"]',
+    requires: '.ss-dropdown__menu.settings-menu',
+    clipSelector: '.ss-dropdown__menu.settings-menu',
+    commands: {},
+  },
+  {
+    id: 'workspace-settings-menu',
+    title: 'Workspace — Settings menu',
+    looksRightWhen:
+      "The bottom-left Settings & Help control opens the same compact menu with App Settings, Report Bug, Feature Request, and What's New; the bug row uses the shared BugReportIcon.",
+    project: WORKSPACE_PROJECT,
+    openSelector: '[aria-label="Settings & Help"]',
+    requires: '.ss-dropdown__menu.settings-menu',
+    clipSelector: '.ss-dropdown__menu.settings-menu',
+    commands: { ...workspaceCommands },
+  },
+  {
+    id: 'dashboard-cards-collapsed',
+    requires: '.dashboard-disclosure',
+    title: 'Dashboard — the card stack folded away',
+    looksRightWhen:
+      'Workspace accounts, Preferences and Tools on this Mac read as three identical summary ' +
+      'rows: same height, same padding, each with its chevron pointing down at the same x. ' +
+      'No card has a gap below its heading where a body used to be, and the headings are as ' +
+      'bright as every other heading on the page.',
+    // All three shut, which is the state that shows whether they actually
+    // match. Nobody has to scroll to compare them.
+    storage: {
+      'shipstudio.dashboard.workspaceAccountsExpanded': '0',
+      'shipstudio.dashboard.preferencesExpanded': '0',
+      'shipstudio.dashboard.machineToolsExpanded': '0',
+    },
     commands: {},
   },
   {

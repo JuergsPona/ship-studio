@@ -25,6 +25,7 @@ import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
 import { ToggleButton } from '../primitives/ToggleButton';
 import { DockablePanel } from '../primitives/DockablePanel';
+import { usePanelDockBinding } from '../../contexts/PanelDockContext';
 import { Spinner } from '../primitives/Spinner';
 import {
   CameraIcon,
@@ -176,8 +177,13 @@ export function WorkspaceTerminalPane(props: WorkspaceTerminalPaneProps) {
     pluginTheme,
   } = props;
 
+  // The rail: which slot this panel's placeholder belongs in, and where to
+  // report a drag of the header below.
+  const dock = usePanelDockBinding('agent');
+
   return (
     <DockablePanel
+      dock={dock}
       docked={agentPanelPinned || isPreviewHidden}
       visible={!isAgentPanelHidden}
       ariaLabel="Agent panel"
@@ -188,14 +194,13 @@ export function WorkspaceTerminalPane(props: WorkspaceTerminalPaneProps) {
         left: Math.max(24, Math.round(window.innerWidth * 0.08)),
         top: 96,
       })}
-      placeholderClassName="agent-panel-dock"
       surfaceClassName="dockable-panel__surface--agent"
     >
       <div className="terminal-pane">
         <div className="workspace-terminal-view">
           <div className="terminal-agent-header panel-heading-pair" data-dockable-drag-handle>
             <span className="terminal-agent-header__identity">
-              <span className="panel-heading-pair-title">Agent</span>
+              <span className="panel-heading-pair-title workspace-panel-title">Agent</span>
               <span className="panel-heading-pair-meta">{getActiveTabAgent().displayName}</span>
             </span>
             {!isPreviewHidden && (

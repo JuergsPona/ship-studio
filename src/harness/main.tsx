@@ -125,7 +125,11 @@ async function waitFor(selector: string, timeoutMs = 8000): Promise<HTMLElement 
  * synthetic event system reads.
  */
 function fillInput(el: HTMLElement, value: string): void {
-  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  // The setter must come from the element's own prototype: the input setter
+  // applied to a textarea throws "Illegal invocation".
+  const prototype =
+    el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
   // Deliberately an unbound setter, applied to this element: that is the whole
   // technique. `unbound-method` is guarding against losing `this`, which the
   // explicit receiver here supplies.
@@ -133,6 +137,14 @@ function fillInput(el: HTMLElement, value: string): void {
   const setValue = descriptor?.set;
   if (setValue) Reflect.apply(setValue, el, [value]);
   el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function selectOption(el: HTMLElement, value: string): void {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const setValue = descriptor?.set;
+  if (setValue) Reflect.apply(setValue, el, [value]);
+  el.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 /**
@@ -148,7 +160,7 @@ async function runSteps(): Promise<void> {
   ];
 
   for (const step of steps) {
-    const selector = step.click ?? step.fill;
+    const selector = step.click ?? step.fill ?? step.select;
     if (!selector) continue;
     const el = await waitFor(selector);
     if (!el) {
@@ -159,9 +171,12 @@ async function runSteps(): Promise<void> {
     if (step.click) {
       el.click();
       stepLog.push(`clicked ${selector}`);
-    } else {
+    } else if (step.fill) {
       fillInput(el, step.value ?? '');
       stepLog.push(`filled ${selector}`);
+    } else {
+      selectOption(el, step.value ?? '');
+      stepLog.push(`selected ${step.value ?? ''} in ${selector}`);
     }
     // One frame, so this step's render lands before the next step looks for
     // the element it produces.

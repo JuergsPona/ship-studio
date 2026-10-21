@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { useCommands } from './useCommands';
 import { useMigrationCommands } from './useMigrationCommands';
+import { useIssueReportCommands } from './useIssueReportCommands';
 import type { PaletteCtx } from './types';
 import { useOpenModal } from '../contexts/ModalContext';
 import { getDashboardProjects, type DashboardProject, type Project } from '../lib/project';
@@ -37,7 +38,7 @@ import {
 export interface UseAppCommandsParams {
   currentProject: Project | null;
   /** Pinned project paths in sidebar order (for the "Projects" tab). */
-  pinnedPaths: string[];
+  pinnedPaths: readonly string[];
   /** Opens a project (wired to the same handler the sidebar uses). */
   handleSelectProject: (project: Project) => void | Promise<void>;
   handleBackToProjects: () => void;
@@ -82,6 +83,7 @@ export function useAppCommands({
   const openModal = useOpenModal();
 
   useMigrationCommands();
+  useIssueReportCommands();
 
   // IDE availability — fetched once so we can hide commands for tools the
   // user doesn't have installed. A silent failure leaves both enabled

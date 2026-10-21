@@ -85,6 +85,8 @@
   position: fixed;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  min-height: 0;
   width: var(--editor-panel-visual-w);
   /* Header + footer are fixed; only the body scrolls. Panel clips; max-height is
      set inline by the component. */
@@ -96,7 +98,8 @@
   font-size: var(--font-size-11);
 }
 
-.ss-cascade-panel.ss-cascade-panel--dockable {
+.ss-cascade-panel.ss-cascade-panel--dockable,
+.ss-visual-editor-panel.ss-visual-editor-panel--dockable {
   position: relative;
   width: 100%;
   height: 100%;
@@ -127,9 +130,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
-  color: var(--text-primary);
-  font-size: var(--font-size-body-lg);
 }
 
 /* No label or value inside the panel wraps. Every property row is a

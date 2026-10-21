@@ -4,11 +4,15 @@
  * @module components/DashboardPreferencesCard
  */
 
-import { HistoryIcon, SettingsIcon } from '@/components/icons';
-import { Button } from '../primitives/Button';
+import { SettingsIcon } from '@/components/icons';
+import { MenuButton } from '../primitives/MenuButton';
+import { SettingsMenu } from '../SettingsMenu';
+import { DashboardCardDisclosure } from './DashboardCardDisclosure';
 
 interface DashboardPreferencesCardProps {
   onOpenSettings: () => void;
+  onOpenBugReports: () => void;
+  onOpenFeatureRequest: () => void;
   onOpenChangelog: () => void;
 }
 
@@ -18,55 +22,54 @@ interface DashboardPreferencesCardProps {
  */
 export function DashboardPreferencesCard({
   onOpenSettings,
+  onOpenBugReports,
+  onOpenFeatureRequest,
   onOpenChangelog,
 }: DashboardPreferencesCardProps) {
   return (
-    <section className="dashboard-card">
-      <header className="dashboard-card-header">
-        <div>
-          <h3 className="dashboard-card-title text-style-h4">Preferences</h3>
-          <p className="dashboard-card-subtitle text-style-body-medium">
-            Adjust app settings or review recent updates.
-          </p>
-        </div>
-      </header>
+    <DashboardCardDisclosure
+      storageKey="shipstudio.dashboard.preferencesExpanded"
+      defaultExpanded
+      title="Preferences"
+      subtitle={
+        <p className="dashboard-card-subtitle text-style-body-medium">
+          App settings, feedback, and release notes.
+        </p>
+      }
+    >
       <div className="dashboard-card-rows">
-        <Button
-          variant="default"
-          size="default"
-          width="hug"
-          className="dashboard-card-row"
-          data-education-id="settings-button"
-          onClick={onOpenSettings}
-        >
-          <div className="dashboard-card-row-icon">
-            <SettingsIcon size={18} />
-          </div>
-          <div className="dashboard-card-row-main">
-            <div className="dashboard-card-row-name text-style-body-medium">Settings</div>
-            <div className="dashboard-card-row-status text-style-control">
-              Dashboard widgets, compact mode, learn mode
-            </div>
-          </div>
-        </Button>
-        <Button
-          variant="default"
-          size="default"
-          width="hug"
-          className="dashboard-card-row"
-          onClick={onOpenChangelog}
-        >
-          <div className="dashboard-card-row-icon">
-            <HistoryIcon size={14} />
-          </div>
-          <div className="dashboard-card-row-main">
-            <div className="dashboard-card-row-name text-style-body-medium">What's New</div>
-            <div className="dashboard-card-row-status text-style-control">
-              Recent updates and downgrade to older versions
-            </div>
-          </div>
-        </Button>
+        <SettingsMenu
+          onOpenSettings={onOpenSettings}
+          onOpenBugReports={onOpenBugReports}
+          onOpenFeatureRequest={onOpenFeatureRequest}
+          onOpenChangelog={onOpenChangelog}
+          renderTrigger={(props) => (
+            <MenuButton
+              variant="default"
+              width="fill"
+              className="dashboard-card-row"
+              data-education-id="settings-button"
+              data-settings-menu-trigger="dashboard"
+              title="Settings & Help"
+              aria-label="Settings & Help"
+              expanded={props['aria-expanded']}
+              {...props}
+            >
+              <div className="dashboard-card-row-icon">
+                <SettingsIcon size={18} />
+              </div>
+              <div className="dashboard-card-row-main">
+                <div className="dashboard-card-row-name text-style-body-medium">
+                  Settings &amp; Help
+                </div>
+                <div className="dashboard-card-row-status text-style-control">
+                  App settings, bug reports, feature requests, and updates
+                </div>
+              </div>
+            </MenuButton>
+          )}
+        />
       </div>
-    </section>
+    </DashboardCardDisclosure>
   );
 }

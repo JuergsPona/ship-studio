@@ -1,6 +1,6 @@
 import type { ComponentProps, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ModalProvider } from '../../contexts/ModalContext';
 import { PaletteContextProvider } from '../CommandPalette/paletteContext';
@@ -22,6 +22,61 @@ function row(): PinnedProjectRow {
     memoryBytes: 0,
     isCurrent: true,
   };
+}
+
+function pinnedRow(projectPath: string, fallbackName: string): PinnedProjectRow {
+  return {
+    projectPath,
+    fallbackName,
+    status: 'inactive',
+    agentStatus: 'idle',
+    unreadCount: 0,
+    memoryBytes: 0,
+    isCurrent: false,
+  };
+}
+
+function pointer(type: string, x: number, y: number, pointerId = 1) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, {
+    pointerId: { value: pointerId },
+    pointerType: { value: 'mouse' },
+    clientX: { value: x },
+    clientY: { value: y },
+  });
+  return event;
+}
+
+function mockPinnedRects() {
+  const items = [...document.querySelectorAll<HTMLElement>('[data-drag-sort-item]')];
+  items.forEach((item, index) => {
+    Object.defineProperty(item, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        left: 0,
+        top: index * 30,
+        right: 280,
+        bottom: index * 30 + 20,
+        width: 280,
+        height: 20,
+      }),
+    });
+  });
+  return items;
+}
+
+function setItemRect(item: HTMLElement, top: number, height = 20) {
+  Object.defineProperty(item, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({
+      left: 0,
+      top,
+      right: 280,
+      bottom: top + height,
+      width: 280,
+      height,
+    }),
+  });
 }
 
 function Providers({ children }: { children: ReactNode }) {
@@ -67,6 +122,8 @@ describe('WorkspaceSidebar project activity indicator', () => {
     mockInvokeResponse('list_accounts', []);
     mockInvokeResponse('get_project_account_id', null);
     mockInvokeResponse('get_active_account_id', 'default');
+    mockInvokeResponse('get_spotify_widget_enabled', false);
+    mockInvokeResponse('get_spotify_state', null);
     sessionRegistry._resetForTests();
     sessionRegistry.setTerminalTabs(
       PROJECT_PATH,
@@ -106,6 +163,108 @@ describe('WorkspaceSidebar project activity indicator', () => {
     });
   });
 
+  it('opens a full-width Settings summary in the sidebar footer and restores the gear trigger', async () => {
+    const { container } = render(<WorkspaceSidebar {...sidebarProps()} />, { wrapper: Providers });
+
+    const trigger = screen.getByRole('button', { name: 'Settings & Help' });
+    expect(trigger).toHaveAttribute('data-settings-menu-trigger', 'workspace');
+    expect(trigger).toHaveClass('button--icon-only');
+    expect(trigger).not.toHaveTextContent('Settings');
+    expect(trigger.querySelector('.workspace-switcher-chevron')).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+
+    const menu = await screen.findByRole('menu');
+    const drawer = menu.closest('.workspace-sidebar-settings-menu');
+    expect(drawer).toHaveClass('is-open');
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(trigger).toHaveClass('workspace-sidebar-settings-summary', 'button--fill');
+    expect(trigger).not.toHaveClass('button--icon-only');
+    expect(trigger).toHaveTextContent('Settings');
+    const settingsChevron = trigger.querySelector('.workspace-switcher-chevron.is-open');
+    expect(settingsChevron).toBeInTheDocument();
+    expect(settingsChevron?.querySelector('[data-icon-name="ChevronIcon"]')).toBeInTheDocument();
+    const settingsLabel = trigger.querySelector('.workspace-switcher-name')!;
+    expect(
+      settingsLabel.compareDocumentPosition(settingsChevron!) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      menu.closest('.workspace-sidebar-footer-actions.has-settings-drawer')
+    ).toBeInTheDocument();
+    expect(menu.closest('.workspace-sidebar')).toBeInTheDocument();
+    expect(container.contains(menu)).toBe(true);
+    expect(menu.querySelector('[data-settings-item="bug-reports"]')).toBeInTheDocument();
+    expect(menu.querySelector('[data-settings-item="feature-request"]')).toBeInTheDocument();
+    expect(menu.querySelector('.ss-dropdown__divider')).not.toBeInTheDocument();
+
+    fireEvent.click(trigger);
+
+    await waitFor(() => {
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      expect(trigger).toHaveClass('button--icon-only');
+      expect(trigger).not.toHaveTextContent('Settings');
+      expect(trigger.querySelector('.workspace-switcher-chevron')).not.toBeInTheDocument();
+    });
+  });
+
+  it('dismisses the Settings drawer with Escape and an outside click', async () => {
+    render(<WorkspaceSidebar {...sidebarProps()} />, { wrapper: Providers });
+    const trigger = screen.getByRole('button', { name: 'Settings & Help' });
+
+    fireEvent.click(trigger);
+    await screen.findByRole('menu');
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      expect(trigger).toHaveFocus();
+    });
+
+    fireEvent.click(trigger);
+    await screen.findByRole('menu');
+    fireEvent.mouseDown(document.body);
+
+    await waitFor(() => {
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    });
+  });
+
+  it('expands the collapsed rail before keeping Settings open and restores its gear on close', async () => {
+    const onToggleSidebar = vi.fn();
+    const props = sidebarProps();
+    const { rerender } = render(
+      <WorkspaceSidebar {...props} isSidebarHidden onToggleSidebar={onToggleSidebar} />,
+      { wrapper: Providers }
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Settings & Help' });
+    expect(trigger).toHaveClass('button--icon-only');
+    expect(trigger.querySelector('.workspace-switcher-chevron')).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+    expect(onToggleSidebar).toHaveBeenCalledOnce();
+
+    rerender(
+      <WorkspaceSidebar {...props} isSidebarHidden={false} onToggleSidebar={onToggleSidebar} />
+    );
+
+    await waitFor(() => {
+      expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      expect(trigger).toHaveTextContent('Settings');
+      expect(trigger).toHaveClass('workspace-sidebar-settings-summary', 'button--fill');
+    });
+    expect(
+      trigger.querySelector('.workspace-switcher-chevron.is-open [data-icon-name="ChevronIcon"]')
+    ).toBeInTheDocument();
+
+    fireEvent.click(trigger);
+
+    await waitFor(() => {
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      expect(trigger).toHaveClass('button--icon-only');
+      expect(trigger.querySelector('.workspace-switcher-chevron')).not.toBeInTheDocument();
+    });
+  });
+
   it('collapses an empty Active group by default', async () => {
     sessionRegistry._resetForTests();
 
@@ -125,6 +284,26 @@ describe('WorkspaceSidebar project activity indicator', () => {
     expect(screen.queryByText('No active projects yet.')).not.toBeInTheDocument();
   });
 
+  it('renders with no projects when projects can move between groups', async () => {
+    sessionRegistry._resetForTests();
+
+    render(
+      <WorkspaceSidebar
+        {...sidebarProps()}
+        isHomeActive
+        projects={[]}
+        currentProjectPath={null}
+        currentProjectName={null}
+        terminalTabs={[]}
+        onReorderProjects={vi.fn()}
+        onTogglePinProject={vi.fn()}
+      />,
+      { wrapper: Providers }
+    );
+
+    expect(await screen.findByRole('button', { name: /Active/ })).toBeInTheDocument();
+  });
+
   it('shows the PixelLoader in a collapsed project row when a tab is thinking', async () => {
     localStorage.setItem(EXPANDED_PROJECTS_KEY, JSON.stringify({ [PROJECT_PATH]: false }));
 
@@ -140,6 +319,49 @@ describe('WorkspaceSidebar project activity indicator', () => {
         container.querySelector('.sidebar-project-status .sidebar-row-dot')
       ).not.toBeInTheDocument();
     });
+  });
+
+  it('shows one server light for a ready server on an idle project row', () => {
+    localStorage.setItem(EXPANDED_PROJECTS_KEY, JSON.stringify({ [PROJECT_PATH]: true }));
+    act(() => {
+      sessionRegistry.setTerminalTabs(
+        PROJECT_PATH,
+        [
+          {
+            id: 1,
+            agentId: 'claude-code',
+            sessionId: 'session-1',
+            status: 'running',
+          },
+        ],
+        0
+      );
+    });
+
+    const { container } = render(
+      <WorkspaceSidebar
+        {...sidebarProps()}
+        hasDevServer
+        devServerRunning
+        getProjectDevServerSnapshot={() => ({
+          status: 'ready',
+          address: 'localhost:3000',
+          instanceId: 1,
+        })}
+      />,
+      { wrapper: Providers }
+    );
+
+    const status = container.querySelector('.sidebar-project-status');
+    expect(status?.querySelectorAll('.sidebar-row-dot')).toHaveLength(1);
+    expect(status?.querySelector('.dot-server-ready')).toBeInTheDocument();
+    expect(status?.querySelector('.dot-idle')).not.toBeInTheDocument();
+    expect(container.querySelector('.sidebar-project-row')).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('dev server running; localhost:3000')
+    );
+    expect(screen.getByText('localhost:3000')).toBeInTheDocument();
+    expect(screen.queryByText('running')).not.toBeInTheDocument();
   });
 
   it('keeps the project dot while expanded and shows the PixelLoader on the tab row', async () => {
@@ -240,6 +462,49 @@ describe('WorkspaceSidebar project activity indicator', () => {
     expect(onStopDevServer).toHaveBeenCalledWith(PROJECT_PATH);
   });
 
+  it('keeps a background server address visible in the collapsed row and its expanded section', async () => {
+    const projectPath = '/tmp/background-project';
+    const backgroundProject = pinnedRow(projectPath, 'background-project');
+    const getProjectDevServerSnapshot = vi.fn(() => ({
+      status: 'ready' as const,
+      address: 'localhost:4321',
+      instanceId: 7,
+    }));
+    const { container } = render(
+      <WorkspaceSidebar
+        {...sidebarProps()}
+        projects={[backgroundProject]}
+        currentProjectPath="/tmp/current-project"
+        currentProjectName="current-project"
+        terminalTabs={[]}
+        getProjectDevServerSnapshot={getProjectDevServerSnapshot}
+      />,
+      { wrapper: Providers }
+    );
+
+    const projectRow = container.querySelector<HTMLElement>('.sidebar-project-row');
+    expect(projectRow).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('dev server running; localhost:4321')
+    );
+    expect(projectRow?.querySelector('.dot-server-ready')).toBeInTheDocument();
+
+    const expandButton = projectRow?.querySelector<HTMLButtonElement>('.sidebar-project-chevron');
+    expect(expandButton).not.toBeNull();
+    act(() => {
+      fireEvent.click(expandButton!);
+    });
+    expect(await screen.findByText('localhost:4321')).toBeInTheDocument();
+    expect(screen.getByText('running')).toBeInTheDocument();
+    expect(
+      projectRow?.querySelector('.sidebar-project-status .dot-server-ready')
+    ).not.toBeInTheDocument();
+    expect(projectRow?.querySelector('.sidebar-project-status .dot-active')).toBeInTheDocument();
+    expect(
+      screen.getByText('localhost:4321').closest('.sidebar-row')?.querySelector('.dot-server-ready')
+    ).toBeInTheDocument();
+  });
+
   it('opens project settings for the sidebar project', async () => {
     mockInvokeResponse('get_dev_server_port', 4321);
     const { container } = render(<WorkspaceSidebar {...sidebarProps()} />, {
@@ -301,7 +566,7 @@ describe('WorkspaceSidebar project activity indicator', () => {
       'button--default',
       'button--icon-only'
     );
-    expect(screen.getByRole('button', { name: 'App settings' })).toHaveClass(
+    expect(screen.getByRole('button', { name: 'Settings & Help' })).toHaveClass(
       'button--default',
       'button--icon-only'
     );
@@ -403,6 +668,644 @@ describe('WorkspaceSidebar project activity indicator', () => {
     expect(currentWorkspaceButton).toHaveTextContent('Default');
     expect(clientButton).toHaveTextContent('Client');
   });
+
+  it('sorts only pinned rows with a leading handle and a full presentational overlay', async () => {
+    vi.useFakeTimers();
+    try {
+      const projects = [
+        pinnedRow('/tmp/alpha', 'alpha'),
+        pinnedRow('/tmp/beta', 'beta'),
+        pinnedRow('/tmp/gamma', 'gamma'),
+      ];
+      const onReorderProjects = vi.fn().mockResolvedValue(undefined);
+      const onSelectProject = vi.fn();
+      render(
+        <WorkspaceSidebar
+          {...sidebarProps()}
+          projects={projects}
+          currentProjectPath={null}
+          currentProjectName={null}
+          terminalTabs={[]}
+          onSelectProject={onSelectProject}
+          onReorderProjects={onReorderProjects}
+        />,
+        { wrapper: Providers }
+      );
+
+      const items = mockPinnedRects();
+      expect(items).toHaveLength(3);
+      const firstRow = items[0]?.querySelector<HTMLElement>('.sidebar-project-row');
+      const handle = within(firstRow!).getByRole('button', { name: 'Move alpha project' });
+      expect(firstRow?.firstElementChild).toBe(handle);
+      expect(handle).toHaveClass('drag-sort__handle', 'sidebar-project-drag-handle');
+      expect(handle).toHaveAttribute('data-drag-sort-handle-visibility', 'hover');
+      expect(firstRow).toHaveAttribute('aria-label', expect.stringContaining('alpha; closed'));
+      expect(firstRow).not.toHaveAttribute('title');
+      expect(handle).not.toHaveAttribute('title');
+      expect(firstRow?.querySelectorAll('[title]')).toHaveLength(0);
+
+      fireEvent(handle, pointer('pointerdown', 10, 10));
+      fireEvent(window, pointer('pointermove', 10, 75));
+      expect(items[0]).toHaveAttribute('data-drag-sort-placeholder', 'true');
+      expect(items[0]).toHaveStyle({ '--drag-sort-transform': 'translate3d(0px, 60px, 0)' });
+      expect(items[1]).toHaveStyle({ '--drag-sort-transform': 'translate3d(0px, -30px, 0)' });
+      expect(items[2]).toHaveStyle({ '--drag-sort-transform': 'translate3d(0px, -30px, 0)' });
+      expect(items[2]).toHaveAttribute('data-drag-sort-target', 'true');
+      expect(items[2]).toHaveAttribute('data-drag-sort-placement', 'after');
+      expect(items[2]).not.toHaveAttribute('data-drag-sort-target-indicator');
+      const placeholder = document.querySelector('[data-drag-sort-placeholder-gap="true"]');
+      expect(placeholder).toHaveClass('workspace-sidebar-project-drop-placeholder');
+
+      const overlay = document.querySelector('[data-drag-sort-overlay="true"]') as HTMLElement;
+      expect(overlay).toBeInTheDocument();
+      expect(overlay).toHaveStyle({
+        '--drag-sort-overlay-width': '280px',
+        '--drag-sort-overlay-height': '20px',
+        '--drag-sort-overlay-y': '65px',
+      });
+      expect(overlay.querySelector('[data-drag-sort-overlay-content="true"]')).toHaveTextContent(
+        'alpha'
+      );
+      expect(overlay.querySelector('.sidebar-project-chevron')).toBeInTheDocument();
+
+      fireEvent(window, pointer('pointerup', 10, 75));
+      fireEvent.click(firstRow!);
+      expect(onSelectProject).not.toHaveBeenCalled();
+      expect(onReorderProjects).not.toHaveBeenCalled();
+      await act(async () => {
+        vi.advanceTimersByTime(250);
+        await Promise.resolve();
+      });
+      expect(onReorderProjects).toHaveBeenCalledOnce();
+      expect(onReorderProjects).toHaveBeenCalledWith(['/tmp/beta', '/tmp/gamma', '/tmp/alpha']);
+      expect(document.querySelector('[data-drag-sort-overlay="true"]')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('supports keyboard reorder through the leading pinned-project handle', async () => {
+    vi.useFakeTimers();
+    try {
+      const projects = [
+        pinnedRow('/tmp/alpha', 'alpha'),
+        pinnedRow('/tmp/beta', 'beta'),
+        pinnedRow('/tmp/gamma', 'gamma'),
+      ];
+      const onReorderProjects = vi.fn().mockResolvedValue(undefined);
+      render(
+        <WorkspaceSidebar
+          {...sidebarProps()}
+          projects={projects}
+          currentProjectPath={null}
+          currentProjectName={null}
+          terminalTabs={[]}
+          onReorderProjects={onReorderProjects}
+        />,
+        { wrapper: Providers }
+      );
+
+      const items = mockPinnedRects();
+      const handle = within(items[1]).getByRole('button', { name: 'Move beta project' });
+      fireEvent.keyDown(handle, { key: ' ' });
+      fireEvent.keyDown(handle, { key: 'ArrowDown' });
+      fireEvent.keyDown(handle, { key: ' ' });
+
+      await act(async () => {
+        vi.advanceTimersByTime(250);
+        await Promise.resolve();
+      });
+      expect(onReorderProjects).toHaveBeenCalledOnce();
+      expect(onReorderProjects).toHaveBeenCalledWith(['/tmp/alpha', '/tmp/gamma', '/tmp/beta']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps an expanded project row-sized while dragging and shows its expanded chevron', async () => {
+    localStorage.setItem(EXPANDED_PROJECTS_KEY, JSON.stringify({ '/tmp/alpha': true }));
+    const projects = [pinnedRow('/tmp/alpha', 'alpha'), pinnedRow('/tmp/beta', 'beta')];
+    render(
+      <WorkspaceSidebar
+        {...sidebarProps()}
+        projects={projects}
+        currentProjectPath={null}
+        currentProjectName={null}
+        terminalTabs={[]}
+        onReorderProjects={vi.fn()}
+      />,
+      { wrapper: Providers }
+    );
+
+    const items = mockPinnedRects();
+    Object.defineProperty(items[0], 'getBoundingClientRect', {
+      configurable: true,
+      value: () => {
+        const height = items[0].getAttribute('data-drag-sort-dragging') === 'true' ? 21 : 90;
+        return { left: 0, top: 0, right: 280, bottom: height, width: 280, height };
+      },
+    });
+    const handle = within(items[0]).getByRole('button', { name: 'Move alpha project' });
+    act(() => {
+      fireEvent(handle, pointer('pointerdown', 10, 10));
+      fireEvent(window, pointer('pointermove', 10, 20));
+    });
+
+    const overlay = document.querySelector('[data-drag-sort-overlay="true"]');
+    expect(overlay).toBeInTheDocument();
+    expect(items[0]).toHaveAttribute('data-drag-sort-collapse-when-dragging', 'true');
+    expect(overlay).toHaveStyle({ '--drag-sort-overlay-height': '21px' });
+    expect(overlay).toHaveAttribute('data-drag-sort-id', '/tmp/alpha');
+    expect(
+      overlay?.querySelector('.sidebar-project-chevron[aria-expanded="true"]')
+    ).toBeInTheDocument();
+    expect(items[0]).toHaveAttribute('data-drag-sort-placeholder', 'true');
+    await act(async () => {
+      fireEvent(window, pointer('pointercancel', 10, 20));
+      await Promise.resolve();
+    });
+  });
+
+  it('sorts Active rows independently with an alphabetical fallback and disables both groups when compact', async () => {
+    sessionRegistry._resetForTests();
+    const activePaths = ['/tmp/zulu-project', '/tmp/alpha-active', '/tmp/mid-active'];
+    for (const activePath of activePaths) sessionRegistry.getOrCreate(activePath);
+    const projects = [pinnedRow('/tmp/beta', 'beta'), pinnedRow('/tmp/alpha', 'alpha')];
+    const { container, rerender } = render(
+      <WorkspaceSidebar
+        {...sidebarProps()}
+        projects={projects}
+        currentProjectPath={null}
+        currentProjectName={null}
+        terminalTabs={[]}
+        onReorderProjects={vi.fn()}
+      />,
+      { wrapper: Providers }
+    );
+
+    expect(container.querySelectorAll('[data-drag-sort-item]')).toHaveLength(5);
+    const projectNames = [...container.querySelectorAll('.sidebar-project-name')].map(
+      (name) => name.textContent
+    );
+    expect(projectNames.slice(-3)).toEqual(['alpha-active', 'mid-active', 'zulu-project']);
+    const activeItems = [...container.querySelectorAll('[data-drag-sort-item]')].filter((item) =>
+      activePaths.includes(item.getAttribute('data-drag-sort-id') ?? '')
+    );
+    expect(activeItems).toHaveLength(3);
+    for (const activePath of activePaths) {
+      const projectName = activePath.slice(activePath.lastIndexOf('/') + 1);
+      expect(
+        within(screen.getByText(projectName).closest('.sidebar-project')!).getByRole('button', {
+          name: /Move/,
+        })
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: `Move ${projectName} project` })
+      ).not.toHaveAttribute('title');
+      expect(
+        screen.getByText(projectName).closest('.sidebar-project-row')?.querySelectorAll('[title]')
+      ).toHaveLength(0);
+    }
+
+    const items = mockPinnedRects();
+    const alphaItem = items.find(
+      (item) => item.getAttribute('data-drag-sort-id') === '/tmp/alpha-active'
+    );
+    expect(alphaItem).toBeDefined();
+    const alphaHandle = within(alphaItem!).getByRole('button', {
+      name: 'Move alpha-active project',
+    });
+    act(() => {
+      fireEvent(alphaHandle, pointer('pointerdown', 10, 10));
+      fireEvent(window, pointer('pointermove', 10, 120));
+      fireEvent(window, pointer('pointerup', 10, 120));
+    });
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem('workspace.active-project-order') ?? '[]')).toEqual([
+        '/tmp/mid-active',
+        '/tmp/alpha-active',
+        '/tmp/zulu-project',
+      ])
+    );
+
+    rerender(
+      <WorkspaceSidebar
+        {...sidebarProps()}
+        projects={projects}
+        currentProjectPath={null}
+        currentProjectName={null}
+        terminalTabs={[]}
+        isSidebarHidden
+        onReorderProjects={vi.fn()}
+      />
+    );
+    expect(container.querySelectorAll('[data-drag-sort-item]')).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: 'Move beta project' })).not.toBeInTheDocument();
+  });
+
+  it('pins an Active project at the position where it is dropped in Pinned', async () => {
+    vi.useFakeTimers();
+    try {
+      sessionRegistry.destroy(PROJECT_PATH);
+      const activePath = '/tmp/workspace-drag-active';
+      sessionRegistry.getOrCreate(activePath);
+      const onTogglePinProject = vi.fn().mockResolvedValue(true);
+      const onReorderProjects = vi.fn().mockResolvedValue(undefined);
+      render(
+        <WorkspaceSidebar
+          {...sidebarProps()}
+          projects={[
+            pinnedRow('/tmp/pinned-alpha', 'pinned-alpha'),
+            pinnedRow('/tmp/pinned-beta', 'pinned-beta'),
+          ]}
+          currentProjectPath={null}
+          currentProjectName={null}
+          terminalTabs={[]}
+          onTogglePinProject={onTogglePinProject}
+          onReorderProjects={onReorderProjects}
+        />,
+        { wrapper: Providers }
+      );
+
+      const items = mockPinnedRects();
+      const activeItem = items.find(
+        (item) => item.getAttribute('data-drag-sort-id') === activePath
+      );
+      const pinnedBeta = items.find(
+        (item) => item.getAttribute('data-drag-sort-id') === '/tmp/pinned-beta'
+      );
+      const activeSection = items.find(
+        (item) =>
+          item.getAttribute('data-drag-sort-id') === 'sidebar-active-section-placeholder-follower'
+      );
+      expect(activeItem).toBeDefined();
+      expect(pinnedBeta).toBeDefined();
+      expect(activeSection).toBeDefined();
+      const handle = within(activeItem!).getByRole('button', {
+        name: 'Move workspace-drag-active project',
+      });
+      fireEvent(handle, pointer('pointerdown', 10, 160));
+      fireEvent(window, pointer('pointermove', 10, 85));
+
+      expect(pinnedBeta).toHaveAttribute('data-drag-sort-target', 'true');
+      expect(pinnedBeta).toHaveAttribute('data-drag-sort-placement', 'after');
+      expect(pinnedBeta).not.toHaveAttribute('data-drag-sort-target-indicator');
+      const placeholder = document.querySelector('[data-drag-sort-placeholder-gap="true"]');
+      expect(placeholder).toHaveClass('workspace-sidebar-project-drop-placeholder');
+      expect(placeholder).toHaveStyle({
+        '--drag-sort-placeholder-y': '80px',
+        '--drag-sort-placeholder-height': '20px',
+      });
+      expect(activeSection).toHaveStyle({ '--drag-sort-transform': 'translate3d(0px, 30px, 0)' });
+      expect(document.querySelectorAll('[data-drag-sort-placeholder-gap="true"]')).toHaveLength(1);
+      fireEvent(window, pointer('pointerup', 10, 85));
+      await act(async () => {
+        vi.advanceTimersByTime(250);
+        await Promise.resolve();
+      });
+
+      expect(onTogglePinProject).toHaveBeenCalledWith(activePath, true);
+      expect(onReorderProjects).toHaveBeenCalledWith([
+        '/tmp/pinned-alpha',
+        '/tmp/pinned-beta',
+        activePath,
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('unpins a Pinned project at the position where it is dropped in Active', async () => {
+    vi.useFakeTimers();
+    try {
+      sessionRegistry.destroy(PROJECT_PATH);
+      const activePaths = ['/tmp/active-alpha', '/tmp/active-beta'];
+      activePaths.forEach((path) => sessionRegistry.getOrCreate(path));
+      const onTogglePinProject = vi.fn().mockResolvedValue(true);
+      const onReorderProjects = vi.fn().mockResolvedValue(undefined);
+      const onSelectProject = vi.fn((path: string) => {
+        sessionRegistry.getOrCreate(path);
+      });
+      const renderSidebar = (projects: PinnedProjectRow[]) => (
+        <WorkspaceSidebar
+          {...sidebarProps()}
+          projects={projects}
+          currentProjectPath={null}
+          currentProjectName={null}
+          terminalTabs={[]}
+          onTogglePinProject={onTogglePinProject}
+          onReorderProjects={onReorderProjects}
+          onSelectProject={onSelectProject}
+        />
+      );
+      const { rerender } = render(renderSidebar([pinnedRow('/tmp/moving-pin', 'moving-pin')]), {
+        wrapper: Providers,
+      });
+
+      const items = mockPinnedRects();
+      const pinnedItem = items.find(
+        (item) => item.getAttribute('data-drag-sort-id') === '/tmp/moving-pin'
+      );
+      const activeHeader = items.find(
+        (item) =>
+          item.getAttribute('data-drag-sort-id') === 'sidebar-expanded-active-header-drop-target'
+      );
+      expect(pinnedItem).toBeDefined();
+      expect(activeHeader).toBeDefined();
+      const handle = within(pinnedItem!).getByRole('button', { name: 'Move moving-pin project' });
+      fireEvent(handle, pointer('pointerdown', 10, 10));
+
+      const activeAlpha = items.find(
+        (item) => item.getAttribute('data-drag-sort-id') === activePaths[0]
+      );
+      const activeBeta = items.find(
+        (item) => item.getAttribute('data-drag-sort-id') === activePaths[1]
+      );
+      const projectActions = items.find(
+        (item) => item.getAttribute('data-drag-sort-id') === 'sidebar-active-project-actions-anchor'
+      );
+      setItemRect(pinnedItem!, 0);
+      setItemRect(activeHeader!, 30);
+      setItemRect(activeAlpha!, 60);
+      setItemRect(activeBeta!, 90);
+      setItemRect(projectActions!, 120);
+
+      fireEvent(window, pointer('pointermove', 10, 40));
+      expect(activeHeader).toHaveAttribute('data-drag-sort-target', 'true');
+      expect(activeHeader).not.toHaveAttribute('data-drag-sort-target-indicator');
+      expect(document.querySelector('[data-drag-sort-placeholder-gap="true"]')).toHaveStyle({
+        '--drag-sort-placeholder-y': '60px',
+        '--drag-sort-placeholder-height': '20px',
+      });
+      expect(activeAlpha).toHaveStyle({ '--drag-sort-transform': 'translate3d(0px, 30px, 0)' });
+
+      fireEvent(window, pointer('pointermove', 10, 75));
+      expect(activeAlpha).toHaveAttribute('data-drag-sort-target', 'true');
+      expect(activeAlpha).not.toHaveAttribute('data-drag-sort-target-indicator');
+      expect(activeAlpha).toHaveAttribute('data-drag-sort-placement', 'after');
+      const placeholder = document.querySelector('[data-drag-sort-placeholder-gap="true"]');
+      expect(placeholder).toHaveClass('workspace-sidebar-project-drop-placeholder');
+      expect(placeholder).toHaveStyle({
+        '--drag-sort-placeholder-y': '90px',
+        '--drag-sort-placeholder-height': '20px',
+      });
+      expect(document.querySelectorAll('[data-drag-sort-placeholder-gap="true"]')).toHaveLength(1);
+      expect(activeBeta).toHaveStyle({ '--drag-sort-transform': 'translate3d(0px, 30px, 0)' });
+      fireEvent(window, pointer('pointermove', 10, 86));
+      expect(activeBeta).toHaveAttribute('data-drag-sort-target', 'true');
+      expect(activeBeta).toHaveAttribute('data-drag-sort-placement', 'before');
+      expect(document.querySelector('[data-drag-sort-placeholder-gap="true"]')).toHaveStyle({
+        '--drag-sort-placeholder-y': '90px',
+      });
+      expect(activeBeta).toHaveStyle({ '--drag-sort-transform': 'translate3d(0px, 30px, 0)' });
+      fireEvent(window, pointer('pointermove', 10, 105));
+      expect(activeBeta).toHaveAttribute('data-drag-sort-placement', 'after');
+      expect(projectActions).toHaveStyle({ '--drag-sort-transform': 'translate3d(0px, 30px, 0)' });
+      fireEvent(window, pointer('pointermove', 10, 86));
+      fireEvent(window, pointer('pointerup', 10, 86));
+      await act(async () => {
+        vi.advanceTimersByTime(250);
+        await Promise.resolve();
+      });
+
+      expect(onTogglePinProject).toHaveBeenCalledWith('/tmp/moving-pin', false);
+      expect(JSON.parse(localStorage.getItem('workspace.active-project-order') ?? '[]')).toEqual([
+        activePaths[0],
+        '/tmp/moving-pin',
+        activePaths[1],
+      ]);
+      expect(onSelectProject).toHaveBeenCalledWith('/tmp/moving-pin');
+      // Apply the parent's successful unpin update. The newly opened session
+      // should now replace the old pinned row in Active.
+      rerender(renderSidebar([]));
+      expect(document.querySelector('[data-drag-sort-id="/tmp/moving-pin"]')).toBeInTheDocument();
+      expect(onReorderProjects).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('counts the synthesized current-project row when unpinning into Active', async () => {
+    vi.useFakeTimers();
+    try {
+      sessionRegistry.destroy(PROJECT_PATH);
+      const activePaths = ['/tmp/active-alpha', '/tmp/active-beta'];
+      activePaths.forEach((path) => sessionRegistry.getOrCreate(path));
+      const onTogglePinProject = vi.fn().mockResolvedValue(true);
+      const onReorderProjects = vi.fn().mockResolvedValue(undefined);
+      render(
+        <WorkspaceSidebar
+          {...sidebarProps()}
+          projects={[pinnedRow('/tmp/moving-pin', 'moving-pin')]}
+          currentProjectPath="/tmp/external-current"
+          currentProjectName="external-current"
+          terminalTabs={[]}
+          onTogglePinProject={onTogglePinProject}
+          onReorderProjects={onReorderProjects}
+          onSelectProject={vi.fn()}
+        />,
+        { wrapper: Providers }
+      );
+
+      const items = mockPinnedRects();
+      const byId = (id: string) =>
+        items.find((item) => item.getAttribute('data-drag-sort-id') === id);
+      const pinnedItem = byId('/tmp/moving-pin');
+      const external = byId('/tmp/external-current');
+      const activeAlpha = byId(activePaths[0]);
+      const activeBeta = byId(activePaths[1]);
+      expect(external).toBeDefined();
+      const handle = within(pinnedItem!).getByRole('button', { name: 'Move moving-pin project' });
+      fireEvent(handle, pointer('pointerdown', 10, 10));
+      setItemRect(pinnedItem!, 0);
+      setItemRect(external!, 60);
+      setItemRect(activeAlpha!, 90);
+      setItemRect(activeBeta!, 120);
+
+      // Upper half of beta: insert between alpha and beta.
+      fireEvent(window, pointer('pointermove', 10, 124));
+      expect(activeBeta).toHaveAttribute('data-drag-sort-placement', 'before');
+      fireEvent(window, pointer('pointerup', 10, 124));
+      await act(async () => {
+        vi.advanceTimersByTime(250);
+        await Promise.resolve();
+      });
+
+      expect(onTogglePinProject).toHaveBeenCalledWith('/tmp/moving-pin', false);
+      expect(JSON.parse(localStorage.getItem('workspace.active-project-order') ?? '[]')).toEqual([
+        '/tmp/external-current',
+        activePaths[0],
+        '/tmp/moving-pin',
+        activePaths[1],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('pins a project when it is dropped in the empty Pinned section body', async () => {
+    vi.useFakeTimers();
+    try {
+      sessionRegistry.destroy(PROJECT_PATH);
+      const activePath = '/tmp/only-active-project';
+      sessionRegistry.getOrCreate(activePath);
+      const onTogglePinProject = vi.fn().mockResolvedValue(true);
+      const onReorderProjects = vi.fn().mockResolvedValue(undefined);
+      render(
+        <WorkspaceSidebar
+          {...sidebarProps()}
+          projects={[]}
+          currentProjectPath={null}
+          currentProjectName={null}
+          terminalTabs={[]}
+          onTogglePinProject={onTogglePinProject}
+          onReorderProjects={onReorderProjects}
+        />,
+        { wrapper: Providers }
+      );
+
+      const items = mockPinnedRects();
+      const activeItem = items.find(
+        (item) => item.getAttribute('data-drag-sort-id') === activePath
+      );
+      const emptyPinnedTarget = items.find(
+        (item) => item.getAttribute('data-drag-sort-id') === 'sidebar-empty-pinned-drop-target'
+      );
+      expect(activeItem).toBeDefined();
+      expect(emptyPinnedTarget).toBeDefined();
+      expect(within(emptyPinnedTarget!).getByText('Nothing pinned yet')).toBeInTheDocument();
+      expect(
+        emptyPinnedTarget!.previousElementSibling?.querySelector('.sidebar-group-header')
+      ).toBeInTheDocument();
+      setItemRect(emptyPinnedTarget!, 30, 30);
+      setItemRect(activeItem!, 70);
+      const handle = within(activeItem!).getByRole('button', {
+        name: 'Move only-active-project project',
+      });
+      fireEvent(handle, pointer('pointerdown', 10, 80));
+      fireEvent(window, pointer('pointermove', 10, 35));
+
+      expect(emptyPinnedTarget).toHaveAttribute('data-drag-sort-target', 'true');
+      expect(emptyPinnedTarget).not.toHaveAttribute('data-drag-sort-target-indicator');
+      expect(emptyPinnedTarget).toHaveAttribute('data-drag-sort-placement', 'before');
+      expect(document.querySelector('[data-drag-sort-placeholder-gap="true"]')).toHaveStyle({
+        '--drag-sort-placeholder-y': '30px',
+        '--drag-sort-placeholder-height': '20px',
+      });
+      fireEvent(window, pointer('pointerup', 10, 35));
+      await act(async () => {
+        vi.advanceTimersByTime(250);
+        await Promise.resolve();
+      });
+
+      expect(onTogglePinProject).toHaveBeenCalledWith(activePath, true);
+      expect(onReorderProjects).toHaveBeenCalledWith([activePath]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('unpins a project when it is dropped on the collapsed empty Active group header', async () => {
+    vi.useFakeTimers();
+    try {
+      sessionRegistry.destroy(PROJECT_PATH);
+      const pinnedPath = '/tmp/only-pinned-project';
+      const onTogglePinProject = vi.fn().mockResolvedValue(true);
+      const onReorderProjects = vi.fn().mockResolvedValue(undefined);
+      render(
+        <WorkspaceSidebar
+          {...sidebarProps()}
+          projects={[pinnedRow(pinnedPath, 'only-pinned-project')]}
+          currentProjectPath={null}
+          currentProjectName={null}
+          terminalTabs={[]}
+          onTogglePinProject={onTogglePinProject}
+          onReorderProjects={onReorderProjects}
+        />,
+        { wrapper: Providers }
+      );
+
+      const items = mockPinnedRects();
+      const pinnedItem = items.find(
+        (item) => item.getAttribute('data-drag-sort-id') === pinnedPath
+      );
+      const emptyActiveTarget = items.find(
+        (item) =>
+          item.getAttribute('data-drag-sort-id') === 'sidebar-empty-active-header-drop-target'
+      );
+      expect(pinnedItem).toBeDefined();
+      expect(emptyActiveTarget).toBeDefined();
+      const actionAnchor = items.find(
+        (item) => item.getAttribute('data-drag-sort-id') === 'sidebar-active-project-actions-anchor'
+      );
+      expect(actionAnchor).toBeDefined();
+      setItemRect(pinnedItem!, 100);
+      setItemRect(emptyActiveTarget!, 30);
+      setItemRect(actionAnchor!, 50);
+
+      const handle = within(pinnedItem!).getByRole('button', {
+        name: 'Move only-pinned-project project',
+      });
+      fireEvent(handle, pointer('pointerdown', 10, 110));
+      fireEvent(window, pointer('pointermove', 10, 40));
+
+      expect(emptyActiveTarget).toHaveAttribute('data-drag-sort-target', 'true');
+      expect(emptyActiveTarget).not.toHaveAttribute('data-drag-sort-target-indicator');
+      expect(emptyActiveTarget).toHaveAttribute('data-drag-sort-placement', 'after');
+      expect(document.querySelector('[data-drag-sort-placeholder-gap="true"]')).toHaveStyle({
+        '--drag-sort-placeholder-y': '50px',
+        '--drag-sort-placeholder-height': '20px',
+      });
+      expect(actionAnchor).toHaveStyle({ '--drag-sort-transform': 'translate3d(0px, 20px, 0)' });
+      fireEvent(window, pointer('pointerup', 10, 40));
+      await act(async () => {
+        vi.advanceTimersByTime(250);
+        await Promise.resolve();
+      });
+
+      expect(onTogglePinProject).toHaveBeenCalledWith(pinnedPath, false);
+      expect(JSON.parse(localStorage.getItem('workspace.active-project-order') ?? '[]')).toEqual([
+        pinnedPath,
+      ]);
+      expect(onReorderProjects).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not prune saved Active ranks while sessions are hydrating', async () => {
+    localStorage.setItem(
+      'workspace.active-project-order',
+      JSON.stringify(['/tmp/zulu-project', '/tmp/alpha-project'])
+    );
+    sessionRegistry._resetForTests();
+    const { container } = render(
+      <WorkspaceSidebar
+        {...sidebarProps()}
+        projects={[]}
+        currentProjectPath={null}
+        currentProjectName={null}
+        terminalTabs={[]}
+      />,
+      { wrapper: Providers }
+    );
+
+    expect(container.querySelectorAll('[data-drag-sort-item]')).toHaveLength(0);
+    act(() => {
+      sessionRegistry.getOrCreate('/tmp/alpha-project');
+      sessionRegistry.getOrCreate('/tmp/zulu-project');
+    });
+    await waitFor(() => {
+      const names = [...container.querySelectorAll('.sidebar-project-name')].map(
+        (name) => name.textContent
+      );
+      expect(names.slice(-2)).toEqual(['zulu-project', 'alpha-project']);
+    });
+    expect(JSON.parse(localStorage.getItem('workspace.active-project-order') ?? '[]')).toEqual([
+      '/tmp/zulu-project',
+      '/tmp/alpha-project',
+    ]);
+  });
 });
 
 /**
@@ -433,6 +1336,8 @@ describe('WorkspaceSidebar project close button', () => {
     mockInvokeResponse('list_accounts', []);
     mockInvokeResponse('get_project_account_id', null);
     mockInvokeResponse('get_active_account_id', 'default');
+    mockInvokeResponse('get_spotify_widget_enabled', false);
+    mockInvokeResponse('get_spotify_state', null);
     sessionRegistry._resetForTests();
     sessionRegistry.getOrCreate(ACTIVE_PATH);
     sessionRegistry.getOrCreate(OTHER_PATH);
@@ -515,6 +1420,87 @@ describe('WorkspaceSidebar project close button', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: 'Close active-project' })).toBeNull();
     });
+  });
+
+  it('never lets the X change meaning under the cursor on a pinned row', async () => {
+    // The bug: closing a pinned project left the row exactly where it was,
+    // and the X — same glyph, same pixel — silently became Unpin. The close
+    // looked like a no-op, so the next click landed on a destructive action
+    // nobody asked for.
+    const user = userEvent.setup();
+    const onCloseProject = vi.fn((path: string) => sessionRegistry.destroy(path));
+    const onUnpinProject = vi.fn();
+
+    const pinned: PinnedProjectRow = {
+      projectPath: ACTIVE_PATH,
+      fallbackName: 'active-project',
+      status: 'active',
+      agentStatus: 'idle',
+      unreadCount: 0,
+      memoryBytes: 0,
+      isCurrent: false,
+    };
+
+    const { container, rerender } = render(
+      <WorkspaceSidebar
+        {...activeSidebarProps()}
+        projects={[pinned]}
+        onCloseProject={onCloseProject}
+        onUnpinProject={onUnpinProject}
+      />,
+      { wrapper: Providers }
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Close active-project' }));
+    expect(onCloseProject).toHaveBeenCalledWith(ACTIVE_PATH);
+
+    // What `usePinnedProjects` hands back once the session is gone.
+    rerender(
+      <WorkspaceSidebar
+        {...activeSidebarProps()}
+        projects={[{ ...pinned, status: 'inactive' }]}
+        onCloseProject={onCloseProject}
+        onUnpinProject={onUnpinProject}
+      />
+    );
+
+    // The pin survives, but nothing clickable is left in the X's place.
+    expect(screen.queryByRole('button', { name: 'Close active-project' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Unpin active-project' })).toBeNull();
+    expect(onUnpinProject).not.toHaveBeenCalled();
+
+    // And the row says so, so the close doesn't read as nothing happening.
+    expect(container.querySelector('.sidebar-project-row[data-parked="true"]')).toBeInTheDocument();
+  });
+
+  it('still unpins a closed pin from the context menu (issue #366)', async () => {
+    // Removing the hover X must not strand a pin whose folder was moved or
+    // deleted outside the app — that is the case the X was added for.
+    const user = userEvent.setup();
+    const onUnpinProject = vi.fn();
+    const { container } = render(
+      <WorkspaceSidebar
+        {...activeSidebarProps()}
+        projects={[
+          {
+            projectPath: ACTIVE_PATH,
+            fallbackName: 'active-project',
+            status: 'inactive',
+            agentStatus: 'idle',
+            unreadCount: 0,
+            memoryBytes: 0,
+            isCurrent: false,
+          },
+        ]}
+        onUnpinProject={onUnpinProject}
+      />,
+      { wrapper: Providers }
+    );
+
+    fireEvent.contextMenu(container.querySelector<HTMLElement>('.sidebar-project-row')!);
+    await user.click(screen.getByRole('menuitem', { name: 'Unpin from sidebar' }));
+
+    expect(onUnpinProject).toHaveBeenCalledWith(ACTIVE_PATH);
   });
 
   it('offers Pin to sidebar for an unpinned active project', async () => {
