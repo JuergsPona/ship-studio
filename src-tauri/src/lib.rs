@@ -816,6 +816,7 @@ pub fn run() {
             commands::agent_bridge::register_cursor_mcp,
             commands::agent_bridge::agent_bridge_attach,
             commands::agent_bridge::agent_bridge_respond,
+            commands::agent_bridge::agent_bridge_respond_chunk,
             // Project Type Detection
             commands::projects::detect_project_type_command,
             commands::projects::project_path_exists,

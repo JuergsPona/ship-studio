@@ -358,6 +358,15 @@ pub fn resolve_bridge_request(request_id: u64, result: Value) -> bool {
     }
 }
 
+/// Whether a tool call is still waiting for the frontend's answer (false once
+/// it has been resolved or has timed out).
+pub fn is_bridge_request_pending(request_id: u64) -> bool {
+    PENDING_REQUESTS
+        .lock()
+        .map(|pending| pending.contains_key(&request_id))
+        .unwrap_or(false)
+}
+
 // ============================================================================
 // HTTP layer
 // ============================================================================
@@ -842,7 +851,7 @@ fn resolve_active_project(app: &tauri::AppHandle) -> Result<String, String> {
     ))
 }
 
-fn tool_error_result(message: &str) -> Value {
+pub(crate) fn tool_error_result(message: &str) -> Value {
     json!({
         "content": [{ "type": "text", "text": message }],
         "isError": true,

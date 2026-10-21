@@ -40,15 +40,9 @@ export interface BridgeRequest {
   arguments?: Record<string, unknown>;
 }
 
-type McpContent =
-  | { type: 'text'; text: string }
-  | { type: 'image'; data: string; mimeType: string };
-
-/** MCP CallToolResult — passed back to the agent verbatim. */
-export interface McpToolResult {
-  content: McpContent[];
-  isError?: boolean;
-}
+import type { McpToolResult } from './agentBridgeTransport';
+export type { McpToolResult } from './agentBridgeTransport';
+export { respondToBridgeRequest, deliverBridgeResponse } from './agentBridgeTransport';
 
 export type ViewportPreset = 'mobile' | 'tablet' | 'laptop' | 'desktop' | 'full';
 
@@ -86,10 +80,6 @@ export interface BridgeToolContext {
 
 export const PREVIEW_MCP_SERVER_NAME = 'shipstudio-preview';
 
-/** Base64 payloads above this are returned as a file path instead of inline
- *  image content — huge inline images blow up the agent's context. */
-const MAX_INLINE_IMAGE_BASE64_CHARS = 2_000_000;
-
 const DEFAULT_ENTRY_LIMIT = 50;
 
 /**
@@ -111,13 +101,6 @@ export async function setAgentBridgeAttached(
   attached: boolean
 ): Promise<void> {
   return invoke('agent_bridge_attach', { projectPath, attached });
-}
-
-export async function respondToBridgeRequest(
-  requestId: number,
-  result: McpToolResult
-): Promise<void> {
-  return invoke('agent_bridge_respond', { requestId, result });
 }
 
 /** localStorage record of which URL each registration target holds. */
@@ -464,16 +447,13 @@ async function captureScreenshot(
     // (preview_set_viewport → preview_screenshot) show the real layout.
     width: ctx.getViewportWidth() ?? undefined,
   });
-  const dataUrl = await invoke<string>('get_screenshot_base64', { filePath: path });
-  const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
-  if (base64.length > MAX_INLINE_IMAGE_BASE64_CHARS) {
-    return text(
-      `Screenshot captured but too large to return inline. It was saved to: ${path} — read that file to view it.`
-    );
-  }
+  // The image is referenced by path, not inlined: Rust reads the file and
+  // inlines it (or, past its size cap, swaps in a "read this file" note) when
+  // the result comes back. Megabytes of base64 through the JSON IPC is what
+  // got truncated on macOS (issue #1128).
   return {
     content: [
-      { type: 'image', data: base64, mimeType: 'image/png' },
+      { type: 'image', path, mimeType: 'image/png' },
       { type: 'text', text: `Screenshot of ${url} (saved to ${path}).` },
     ],
   };
