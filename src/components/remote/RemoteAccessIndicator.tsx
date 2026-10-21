@@ -1,12 +1,13 @@
 /**
- * The sidebar's reminder that remote access is on — and the first place a
- * problem shows up.
+ * The sidebar's door into remote access, and the first place a problem shows
+ * up.
  *
- * Renders nothing while remote access is off. While it's on, one quiet row:
- * a dot and a line saying who last connected. The row turns amber for the
- * one thing that will end remote access on its own — running on battery —
- * and red if the server isn't running at all, because those are exactly
- * what the user needs to see before they walk away.
+ * Always present, so people find the feature: while it's off, a muted grey
+ * "Remote access off" that opens setup. While it's on, a green dot and who
+ * last connected. The row turns amber for the one thing that will end remote
+ * access on its own — running on battery — and red if the server isn't
+ * running at all, because those are exactly what the user needs to see
+ * before they walk away.
  *
  * Polls the cheap brief (no Tailscale calls), since every window shows it.
  *
@@ -20,13 +21,19 @@ import { useAsyncState } from '../../hooks/useAsyncState';
 import { usePolling } from '../../hooks/usePolling';
 import { agoText, getRemoteAccessBrief, type RemoteAccessBrief } from '../../lib/remoteAccess';
 
-type Tone = 'ok' | 'warn' | 'down';
+type Tone = 'off' | 'ok' | 'warn' | 'down';
 
 export function indicatorState(
   brief: RemoteAccessBrief,
   now: number
-): { tone: Tone; line: string; detail: string } | null {
-  if (!brief.enabled) return null;
+): { tone: Tone; line: string; detail: string } {
+  if (!brief.enabled) {
+    return {
+      tone: 'off',
+      line: 'Remote access off',
+      detail: 'Keep your agents going from your phone — click to set up remote access.',
+    };
+  }
   if (!brief.serverRunning) {
     return {
       tone: 'down',

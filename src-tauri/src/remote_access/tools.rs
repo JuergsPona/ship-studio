@@ -4,7 +4,8 @@
 //! projects the user opted in. Failures come back as in-band tool errors with
 //! a sentence the assistant can relay, never as protocol errors.
 //!
-//! Text reaches a terminal only through `send_to_agent` and `press_key`, and
+//! Text reaches a terminal only through `message_agent`, `start_agent` and
+//! `press_key`, and
 //! only for tabs running an agent CLI. A plain shell tab is listed (so the
 //! assistant can say it exists) but never written to: typing into a shell is
 //! remote code execution with no agent in between, which is exactly the power
@@ -65,8 +66,8 @@ const TOOLS: &[ToolDef] = &[
         }),
     },
     ToolDef {
-        name: "send_to_agent",
-        description: "Type a message into an agent tab and press Enter, exactly as if the user typed it at their desk. Only works on agent tabs (Claude Code, Codex, …), not plain terminals. Read the tab first so you don't interrupt a question the agent is asking.",
+        name: "message_agent",
+        description: "THE DEFAULT for anything the user asks an agent to do. Continues the conversation already running in the project's agent tab (the most recently active one, or the tab you name), exactly as if the user typed it at their desk. If the agent is busy, the message is still delivered — do not start another agent because one is busy. Only if no agent is running at all does this start one.",
         schema: || json!({
             "type": "object",
             "properties": {
@@ -92,7 +93,7 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "start_agent",
-        description: "Open a NEW agent tab in a project, starting with this prompt. Use for new work; use send_to_agent to continue an existing conversation. Opens the project in Ship Studio if it isn't open. Returns the new tab once its terminal is running.",
+        description: "Open a SEPARATE, additional agent tab. Only when the user explicitly asks for a new, separate or parallel agent — never to continue work, and never because the current agent is busy (use message_agent for both). The new agent starts with this prompt; don't send it again afterwards.",
         schema: || json!({
             "type": "object",
             "properties": {
@@ -100,6 +101,18 @@ const TOOLS: &[ToolDef] = &[
                 "prompt": { "type": "string", "description": "The agent's first instruction." }
             },
             "required": ["prompt"]
+        }),
+    },
+    ToolDef {
+        name: "close_agent",
+        description: "Close an agent tab, ending that agent — like clicking its × in Ship Studio. Confirm with the user which tab first, unless they named it. The project's last remaining tab can't be closed.",
+        schema: || json!({
+            "type": "object",
+            "properties": {
+                "project": project_prop(),
+                "tab": { "type": "string", "description": "Tab number or id from list_projects." }
+            },
+            "required": ["tab"]
         }),
     },
     ToolDef {
@@ -169,7 +182,8 @@ pub async fn call(app: &tauri::AppHandle, config: &RemoteConfig, name: &str, arg
     };
     match name {
         "read_agent" => read_agent(&project, &args).await,
-        "send_to_agent" => send_to_agent(&project, &args).await,
+        "message_agent" => message_agent(app, &project, &args).await,
+        "close_agent" => close_agent(app, &project, &args).await,
         "press_key" => press_key(&project, &args),
         "start_agent" => start_agent(app, &project, &args).await,
         "preview_screenshot" => preview_screenshot(app, &project, &args).await,
@@ -514,23 +528,23 @@ fn write(session_id: &str, bytes: &[u8]) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-async fn send_to_agent(project: &str, args: &Value) -> Value {
-    let message = sanitize_message(args.get("message").and_then(Value::as_str).unwrap_or(""));
-    if message.trim().is_empty() {
-        return error("The message is empty.");
+/// Validate text bound for an agent, the same way for a message and a prompt.
+fn clean_agent_text(raw: &str, what: &str) -> Result<String, String> {
+    let text = sanitize_message(raw);
+    if text.trim().is_empty() {
+        return Err(format!("The {what} is empty."));
     }
-    if message.chars().count() > MAX_MESSAGE_CHARS {
-        return error(format!(
-            "That message is too long (max {MAX_MESSAGE_CHARS} characters)."
+    if text.chars().count() > MAX_MESSAGE_CHARS {
+        return Err(format!(
+            "That {what} is too long (max {MAX_MESSAGE_CHARS} characters)."
         ));
     }
-    if let Err(e) = check_message_kind(&message) {
-        return error(e);
-    }
-    let (n, tab) = match writable_tab(project, args.get("tab").and_then(Value::as_str)) {
-        Ok(t) => t,
-        Err(e) => return error(e),
-    };
+    check_message_kind(&text)?;
+    Ok(text)
+}
+
+/// Type `message` into a live agent tab and press Enter.
+async fn type_into(tab: &SessionSummary, n: usize, message: &str) -> Result<(), String> {
     // Paste the text the way a terminal would if the program asked for
     // bracketed paste, so newlines in it don't each submit; then press Enter
     // on its own, which is what actually sends it.
@@ -548,17 +562,60 @@ async fn send_to_agent(project: &str, args: &Value) -> Value {
     } else {
         message.replace('\n', " ")
     };
-    if let Err(e) = write(&tab.session_id, payload.as_bytes()) {
-        return error(format!("Couldn't type into tab {n}: {e}"));
-    }
+    write(&tab.session_id, payload.as_bytes())
+        .map_err(|e| format!("Couldn't type into tab {n}: {e}"))?;
     tokio::time::sleep(Duration::from_millis(150)).await;
-    if let Err(e) = write(&tab.session_id, b"\r") {
-        return error(format!(
-            "Typed the message but couldn't press Enter in tab {n}: {e}"
-        ));
+    write(&tab.session_id, b"\r")
+        .map_err(|e| format!("Typed the message but couldn't press Enter in tab {n}: {e}"))
+}
+
+/// The tool the assistant should reach for: continue the conversation that
+/// is already going. Only when no agent is running at all does it start one
+/// — a busy agent is not a reason for a new one, because the message is
+/// typed in and the agent takes it up when it gets to it.
+///
+/// This exists because, given only "send" and "start", a real assistant
+/// started a fresh agent for most requests: once because the first agent was
+/// busy, and once it re-sent a prompt the new agent had already been given.
+async fn message_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> Value {
+    let message = match clean_agent_text(
+        args.get("message").and_then(Value::as_str).unwrap_or(""),
+        "message",
+    ) {
+        Ok(m) => m,
+        Err(e) => return error(e),
+    };
+    let wanted = args.get("tab").and_then(Value::as_str);
+    let sessions = sessions_for(project);
+    let has_live_agent = sessions.iter().any(|s| is_agent_tab(s) && s.alive);
+
+    // Nothing to continue: start one, and say that's what happened.
+    if wanted.is_none() && !has_live_agent {
+        return match start_agent_with(app, project, &not_a_flag(&message)).await {
+            Ok((n, agent)) => text(format!(
+                "No agent was running in {}, so I started one ({agent}, tab {n}) with this message. It already has the message — don't send it again. Use read_agent with wait_seconds to follow it.",
+                project_name(project)
+            )),
+            Err(e) => error(e),
+        };
     }
+
+    let (n, tab) = match writable_tab(project, wanted) {
+        Ok(t) => t,
+        Err(e) => return error(e),
+    };
+    let was_busy = super::now_ms().saturating_sub(tab.last_output_ms) < QUIET_MS;
+    if let Err(e) = type_into(&tab, n, &message).await {
+        return error(e);
+    }
+    let kind = tab.agent_id.as_deref().unwrap_or("agent");
+    let busy_note = if was_busy {
+        " It was still working; the message is typed in and it will take it up when it gets to it — no need for another agent."
+    } else {
+        ""
+    };
     text(format!(
-        "Sent to tab {n}. Use read_agent with wait_seconds to see the response."
+        "Sent to tab {n} ({kind}), continuing its conversation.{busy_note} Use read_agent with wait_seconds to see the reply."
     ))
 }
 
@@ -603,38 +660,32 @@ fn press_key(project: &str, args: &Value) -> Value {
     }
 }
 
-async fn start_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> Value {
-    let prompt = not_a_flag(&sanitize_message(
-        args.get("prompt").and_then(Value::as_str).unwrap_or(""),
-    ));
-    if prompt.trim().is_empty() {
-        return error("The prompt is empty.");
-    }
-    if let Err(e) = check_message_kind(&prompt) {
-        return error(e);
-    }
-    if prompt.chars().count() > MAX_MESSAGE_CHARS {
-        return error(format!(
-            "That prompt is too long (max {MAX_MESSAGE_CHARS} characters)."
-        ));
-    }
-    let before: Vec<String> = sessions_for(project)
-        .into_iter()
-        .map(|s| s.session_id)
-        .collect();
-    let window = crate::state::get_window_for_project(project)
+/// The window that owns `project`, or the main window if none does.
+fn window_for(project: &str) -> String {
+    crate::state::get_window_for_project(project)
         .or_else(|| {
             dunce::canonicalize(project)
                 .ok()
                 .and_then(|c| crate::state::get_window_for_project(&c.to_string_lossy()))
         })
-        .unwrap_or_else(|| "main".to_string());
-    let payload = json!({ "projectPath": project, "prompt": prompt });
-    if let Err(e) = app.emit_to(&window, "remote-start-agent", payload) {
-        return error(format!("Couldn't reach the Ship Studio window: {e}"));
-    }
+        .unwrap_or_else(|| "main".to_string())
+}
 
-    // Done means a new agent terminal actually exists — not that we asked.
+/// Open a new agent tab whose CLI starts with `prompt`. Returns its tab
+/// number and agent once its terminal actually exists — not when we asked.
+async fn start_agent_with(
+    app: &tauri::AppHandle,
+    project: &str,
+    prompt: &str,
+) -> Result<(usize, String), String> {
+    let before: Vec<String> = sessions_for(project)
+        .into_iter()
+        .map(|s| s.session_id)
+        .collect();
+    let payload = json!({ "projectPath": project, "prompt": prompt });
+    app.emit_to(&window_for(project), "remote-start-agent", payload)
+        .map_err(|e| format!("Couldn't reach the Ship Studio window: {e}"))?;
+
     let deadline = tokio::time::Instant::now() + START_AGENT_TIMEOUT;
     while tokio::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -644,16 +695,73 @@ async fn start_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> Val
             .enumerate()
             .find(|(_, s)| is_agent_tab(s) && !before.contains(&s.session_id))
         {
+            return Ok((i + 1, s.agent_id.clone().unwrap_or_else(|| "agent".into())));
+        }
+    }
+    Err("Ship Studio didn't open a new agent tab within a minute. The project may have hit its tab limit, its agent may not be installed, or the window is stuck on a dialog. Check list_projects; the user may need to look when they're back.".into())
+}
+
+async fn start_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> Value {
+    let prompt = match clean_agent_text(
+        args.get("prompt").and_then(Value::as_str).unwrap_or(""),
+        "prompt",
+    ) {
+        Ok(p) => not_a_flag(&p),
+        Err(e) => return error(e),
+    };
+    match start_agent_with(app, project, &prompt).await {
+        Ok((n, agent)) => text(format!(
+            "Started a separate agent in {} as tab {n} ({agent}). It already has the prompt — don't send it again. Use read_agent with tab \"{n}\" and wait_seconds to follow it.",
+            project_name(project)
+        )),
+        Err(e) => error(e),
+    }
+}
+
+/// How long close_agent waits for the tab to actually go.
+const CLOSE_AGENT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Close an agent tab — the same as the user clicking its ×. Asks the window
+/// that owns the tab, so the tab list, split panes and the process all go
+/// together, then confirms the terminal is really gone.
+async fn close_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> Value {
+    let Some(wanted) = args
+        .get("tab")
+        .and_then(Value::as_str)
+        .filter(|t| !t.trim().is_empty())
+    else {
+        return error("Say which tab to close (its number or id from list_projects).");
+    };
+    let sessions = sessions_for(project);
+    let (n, tab) = match pick_tab(&sessions, Some(wanted)) {
+        Ok(t) => t,
+        Err(e) => return error(e),
+    };
+    if !is_agent_tab(&tab) {
+        return error(format!(
+            "Tab {n} is a plain terminal, not an agent. Remote access only closes agent tabs."
+        ));
+    }
+    let payload = json!({ "projectPath": project, "sessionId": tab.session_id });
+    if let Err(e) = app.emit_to(&window_for(project), "remote-close-agent", payload) {
+        return error(format!("Couldn't reach the Ship Studio window: {e}"));
+    }
+    let deadline = tokio::time::Instant::now() + CLOSE_AGENT_TIMEOUT;
+    while tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        if !sessions_for(project)
+            .iter()
+            .any(|s| s.session_id == tab.session_id)
+        {
             return text(format!(
-                "Started a new agent in {} as tab {} ({}). Use read_agent with tab \"{}\" and wait_seconds to follow it.",
-                project_name(project),
-                i + 1,
-                s.agent_id.as_deref().unwrap_or("agent"),
-                i + 1
+                "Closed tab {n} ({}). Tab numbers after it have shifted down — call list_projects before using them.",
+                tab.agent_id.as_deref().unwrap_or("agent")
             ));
         }
     }
-    error("Ship Studio didn't open a new agent tab within a minute. The project may have hit its tab limit, its agent may not be installed, or the window is stuck on a dialog. Check list_projects; the user may need to look when they're back.")
+    error(format!(
+        "Tab {n} didn't close. If it's the project's only tab, Ship Studio keeps it open — use message_agent with \"/clear\" to start that conversation fresh instead."
+    ))
 }
 
 async fn preview_screenshot(app: &tauri::AppHandle, project: &str, args: &Value) -> Value {

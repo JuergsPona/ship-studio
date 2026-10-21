@@ -418,10 +418,15 @@ export function describeAudit(entry: AuditEntry): string {
   switch (entry.tool) {
     case 'connected':
       return `${entry.detail} connected`;
-    case 'send_to_agent':
+    case 'message_agent':
+    case 'send_to_agent': // the tool's name before message_agent; older log lines
       return `Sent a message${project}${quote}`;
     case 'start_agent':
-      return `Started an agent${project}${quote}`;
+      return `Started a new agent${project}${quote}`;
+    case 'close_agent':
+      return `Closed an agent${project}${entry.detail ? ` (${entry.detail})` : ''}`;
+    case 'republish':
+      return entry.ok ? 'Asked Tailscale to publish the address again' : 'Republishing failed';
     case 'press_key':
       return `Pressed ${entry.detail.replace('key ', '') || 'a key'}${project}`;
     case 'read_agent':

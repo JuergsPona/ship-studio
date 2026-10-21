@@ -14,8 +14,11 @@ const brief = (over: Partial<RemoteAccessBrief> = {}): RemoteAccessBrief => ({
 });
 
 describe('indicatorState', () => {
-  it('shows nothing while remote access is off', () => {
-    expect(indicatorState(brief({ enabled: false }), now)).toBeNull();
+  it('stays visible while off, so people can find the feature', () => {
+    expect(indicatorState(brief({ enabled: false }), now)).toMatchObject({
+      tone: 'off',
+      line: 'Remote access off',
+    });
   });
 
   it('is calm and says who last connected', () => {

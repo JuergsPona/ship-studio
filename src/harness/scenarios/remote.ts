@@ -244,6 +244,16 @@ export const remoteScenarios: Scenario[] = [
     { get_remote_audit: audit }
   ),
   {
+    id: 'remote-indicator-off',
+    title: 'Sidebar — remote access never set up',
+    looksRightWhen:
+      'At the foot of the sidebar, a hollow grey dot and "Remote access off", quieter than ' +
+      'everything around it. Clicking it opens Remote access setup.',
+    clipSelector: '.workspace-sidebar-footer',
+    requires: '[data-testid="remote-indicator"]',
+    commands: {},
+  },
+  {
     id: 'remote-indicator-battery',
     title: 'Sidebar — remote access on, running on battery',
     looksRightWhen:

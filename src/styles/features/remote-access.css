@@ -576,3 +576,13 @@
 .remote-indicator--down .remote-indicator__line {
   color: var(--accent-error);
 }
+
+/* Off: present for discoverability, but quieter than anything that's on. */
+.remote-indicator--off {
+  color: var(--text-muted);
+}
+
+.remote-indicator--off .remote-indicator__dot {
+  background: transparent;
+  border: 1px solid var(--text-muted);
+}

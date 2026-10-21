@@ -40,7 +40,7 @@ import { useProjectLifecycle } from './hooks/useProjectLifecycle';
 import { useAppSetup } from './hooks/useAppSetup';
 import { AppViewRouter } from './components/AppViewRouter';
 import { useFindingHandoff } from './hooks/useWorkflowHandoff';
-import { useRemoteAgentStart } from './hooks/useRemoteAgentStart';
+import { useRemoteAgentControl } from './hooks/useRemoteAgentControl';
 import { useAccountSelectNavigation } from './hooks/useAccountSelectNavigation';
 import { useProjectRail } from './hooks/useProjectRail';
 import { useActiveAccount } from './hooks/useActiveAccount';
@@ -824,13 +824,14 @@ function AppContents({ initialProjectPath }: AppProps) {
   const handoffPath = view === 'workspace' ? (currentProject?.path ?? null) : null;
   useFindingHandoff(handoffPath, terminalProps, showToast);
 
-  // Remote access's start_agent — see hooks/useRemoteAgentStart.
-  useRemoteAgentStart({
+  // Remote access's start_agent / close_agent — see hooks/useRemoteAgentControl.
+  useRemoteAgentControl({
     currentProjectPath: currentProject?.path ?? null,
     inWorkspace: view === 'workspace',
-    terminalTabCount: terminalProps.terminalTabs.length,
+    terminalTabs: terminalProps.terminalTabs,
     maxTerminalTabs: terminalProps.maxTerminalTabs,
     addTerminalTab: terminalProps.addTerminalTab,
+    closeTerminalTab: terminalProps.closeTerminalTab,
     openProject: handleSelectProject,
   });
 
