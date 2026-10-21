@@ -40,6 +40,7 @@ import { useProjectLifecycle } from './hooks/useProjectLifecycle';
 import { useAppSetup } from './hooks/useAppSetup';
 import { AppViewRouter } from './components/AppViewRouter';
 import { useFindingHandoff } from './hooks/useWorkflowHandoff';
+import { useRemoteAgentStart } from './hooks/useRemoteAgentStart';
 import { useAccountSelectNavigation } from './hooks/useAccountSelectNavigation';
 import { useProjectRail } from './hooks/useProjectRail';
 import { useActiveAccount } from './hooks/useActiveAccount';
@@ -822,6 +823,16 @@ function AppContents({ initialProjectPath }: AppProps) {
   // back to 'workspace' is what re-arms delivery of a second finding.
   const handoffPath = view === 'workspace' ? (currentProject?.path ?? null) : null;
   useFindingHandoff(handoffPath, terminalProps, showToast);
+
+  // Remote access's start_agent — see hooks/useRemoteAgentStart.
+  useRemoteAgentStart({
+    currentProjectPath: currentProject?.path ?? null,
+    inWorkspace: view === 'workspace',
+    terminalTabCount: terminalProps.terminalTabs.length,
+    maxTerminalTabs: terminalProps.maxTerminalTabs,
+    addTerminalTab: terminalProps.addTerminalTab,
+    openProject: handleSelectProject,
+  });
 
   const devServerProps = useMemo(
     () => ({

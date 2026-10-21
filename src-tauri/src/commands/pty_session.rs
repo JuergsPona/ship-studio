@@ -105,6 +105,32 @@ struct Session {
     /// lets the kernel's PTY buffer fill and blocks the child's own `write`.
     /// See [`FlowControl`] and issue #910.
     flow: FlowControl,
+    /// Who this session belongs to, as the frontend told us at open time.
+    /// Remote access lists a project's agent tabs from these — the tab model
+    /// itself lives in the frontend, which may not be mounted.
+    meta: SessionMeta,
+    /// Current PTY size, so a remote reader can render the screen at the
+    /// geometry the program actually drew it for.
+    size: Mutex<(u16, u16)>,
+    /// Unix ms of the last byte read from the PTY. "Quiet for a while" is the
+    /// only honest signal a remote caller has that an agent finished a turn.
+    last_output_ms: std::sync::atomic::AtomicU64,
+}
+
+/// Open-time facts about a session that never change afterwards.
+#[derive(Clone, Default)]
+struct SessionMeta {
+    project_path: Option<String>,
+    /// The frontend's agent id (`claude`, `codex`, `terminal`, …), when given.
+    agent_id: Option<String>,
+    opened_at_ms: u64,
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// Backpressure between a PTY and the terminal rendering it.
@@ -363,6 +389,7 @@ pub async fn pty_session_open(
     cols: u16,
     rows: u16,
     project_path: Option<String>,
+    agent_id: Option<String>,
 ) -> Result<OpenSessionResult, CommandError> {
     // Idempotent: if a live session already exists for this id, return it.
     // If an exited session exists under this id (e.g. resume-failed retry
@@ -478,6 +505,13 @@ pub async fn pty_session_open(
         child_killer: Mutex::new(child_killer),
         master: Mutex::new(Some(pair.master)),
         flow: FlowControl::new(),
+        meta: SessionMeta {
+            project_path: project_path.clone(),
+            agent_id,
+            opened_at_ms: now_ms(),
+        },
+        size: Mutex::new((rows, cols)),
+        last_output_ms: std::sync::atomic::AtomicU64::new(now_ms()),
     });
 
     REGISTRY
@@ -506,6 +540,9 @@ pub async fn pty_session_open(
                     Err(_) => break,
                 };
                 let chunk = &buf[..n];
+                session_for_reader
+                    .last_output_ms
+                    .store(now_ms(), Ordering::Relaxed);
 
                 handle_dsr_intercept(
                     chunk,
@@ -690,6 +727,9 @@ pub fn pty_session_resize(session_id: String, cols: u16, rows: u16) -> Result<()
                 CommandError::from(format!("resize: {msg}"))
             }
         })?;
+    if let Ok(mut size) = session.size.lock() {
+        *size = (rows, cols);
+    }
     Ok(())
 }
 
@@ -842,6 +882,65 @@ pub fn pty_session_set_paused(session_id: String, paused: bool) -> Result<(), Co
     Ok(())
 }
 
+// ============================================================================
+// Read-only view for remote access (see `crate::remote_access`)
+// ============================================================================
+
+/// One session as remote access sees it. Deliberately no buffer: reading
+/// output goes through [`session_snapshot`] so it is always one explicit call.
+#[derive(Debug, Clone)]
+pub struct SessionSummary {
+    pub session_id: String,
+    pub agent_id: Option<String>,
+    pub alive: bool,
+    pub opened_at_ms: u64,
+    pub last_output_ms: u64,
+}
+
+/// The sessions opened for `project_path`, oldest first.
+pub fn sessions_for_project(project_path: &str) -> Vec<SessionSummary> {
+    let Ok(map) = REGISTRY.lock() else {
+        return Vec::new();
+    };
+    let mut sessions: Vec<SessionSummary> = map
+        .iter()
+        .filter(|(_, s)| s.meta.project_path.as_deref() == Some(project_path))
+        .map(|(id, s)| SessionSummary {
+            session_id: id.clone(),
+            agent_id: s.meta.agent_id.clone(),
+            alive: s.alive.load(Ordering::Relaxed),
+            opened_at_ms: s.meta.opened_at_ms,
+            last_output_ms: s.last_output_ms.load(Ordering::Relaxed),
+        })
+        .collect();
+    sessions.sort_by_key(|s| s.opened_at_ms);
+    sessions
+}
+
+/// A session's retained output plus the geometry it was drawn at.
+pub struct SessionSnapshot {
+    pub project_path: Option<String>,
+    pub bytes: Vec<u8>,
+    pub rows: u16,
+    pub cols: u16,
+    pub alive: bool,
+    pub last_output_ms: u64,
+}
+
+pub fn session_snapshot(session_id: &str) -> Option<SessionSnapshot> {
+    let session = REGISTRY.lock().ok()?.get(session_id).cloned()?;
+    let bytes = session.buffer.lock().ok()?.ring.iter().copied().collect();
+    let (rows, cols) = session.size.lock().map(|s| *s).unwrap_or((24, 80));
+    Some(SessionSnapshot {
+        project_path: session.meta.project_path.clone(),
+        bytes,
+        rows,
+        cols,
+        alive: session.alive.load(Ordering::Relaxed),
+        last_output_ms: session.last_output_ms.load(Ordering::Relaxed),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -890,6 +989,9 @@ mod tests {
                 child_killer: Mutex::new(killer),
                 master: Mutex::new(Some(pair.master)),
                 flow: FlowControl::new(),
+                meta: SessionMeta::default(),
+                size: Mutex::new((24, 80)),
+                last_output_ms: std::sync::atomic::AtomicU64::new(0),
             })
         }
 

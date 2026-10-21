@@ -6,6 +6,7 @@ import { featureScenarios } from './features';
 import { hostingScenarios } from './hosting';
 import { hostingConnectScenarios } from './hostingConnect';
 import { migrationScenarios } from './migration';
+import { remoteScenarios } from './remote';
 import { teamScenarios } from './team';
 
 export const scenarios: Scenario[] = [
@@ -14,6 +15,7 @@ export const scenarios: Scenario[] = [
   ...hostingScenarios,
   ...hostingConnectScenarios,
   ...migrationScenarios,
+  ...remoteScenarios,
   ...teamScenarios,
 ];
 

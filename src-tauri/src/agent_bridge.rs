@@ -811,6 +811,21 @@ async fn dispatch_tool(
     }
 }
 
+/// Run one preview tool for `canonical_project_path` on behalf of another
+/// part of the backend (remote access), with the same routing, fail-fast
+/// checks and timeouts an agent's call gets.
+pub async fn call_preview_tool(
+    app: tauri::AppHandle,
+    canonical_project_path: &str,
+    tool_name: &str,
+    arguments: Value,
+) -> Value {
+    match TOOLS.iter().find(|t| t.name == tool_name) {
+        Some(tool) => dispatch_tool(&app, canonical_project_path, tool, arguments).await,
+        None => tool_error_result(&format!("Unknown preview tool: {tool_name}")),
+    }
+}
+
 /// Which project should an "active"-URL tool call act on?
 /// The focused Ship Studio window's project wins; with nothing focused
 /// (agent running while the user looks elsewhere), a single open project is

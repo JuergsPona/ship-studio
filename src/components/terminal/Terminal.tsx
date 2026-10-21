@@ -814,6 +814,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           cols: Math.max(term.cols, 2),
           rows: Math.max(term.rows, 2),
           projectPath,
+          agentId: agent.id,
         });
 
         if (!mounted) {
