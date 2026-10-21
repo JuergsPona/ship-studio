@@ -30,6 +30,11 @@ const MAX_BODY_BYTES: usize = 1024 * 1024;
 /// bounds what a misbehaving one can make us do.
 const MAX_CONNECTIONS: usize = 16;
 
+/// Marks Ship Studio's own reachability probe. The value is random per run,
+/// so nothing outside this process can use it to hide from the audit log.
+pub(crate) const PROBE_HEADER: &str = "x-shipstudio-probe";
+pub(crate) static PROBE_ID: LazyLock<String> = LazyLock::new(super::new_token);
+
 /// Tools left out of the audit log (see the call site).
 const READ_ONLY_TOOLS: &[&str] = &[
     "computer_status",
@@ -252,6 +257,12 @@ async fn handle_http(
         tokio::time::sleep(std::time::Duration::from_millis(REJECT_DELAY_MS)).await;
         return Ok(status_only(StatusCode::NOT_FOUND));
     }
+    // Only meaningful after the token check: the probe id is a second secret,
+    // not a way in.
+    let is_probe = req
+        .headers()
+        .get(PROBE_HEADER)
+        .is_some_and(|v| constant_time_eq(v.as_bytes(), PROBE_ID.as_bytes()));
 
     match *req.method() {
         Method::POST => {
@@ -287,6 +298,15 @@ async fn handle_http(
                         .map(|s| s.chars().take(80).collect::<String>())
                 })
                 .flatten();
+            // Our own reachability probe (see `tailscale::public_reachability`)
+            // must not count as an assistant connecting — that is exactly the
+            // signal setup waits for.
+            if is_probe {
+                return Ok(json_response(rpc_ok(
+                    message.get("id").cloned().unwrap_or(Value::Null),
+                    json!({}),
+                )));
+            }
             if !allow_request(super::now_ms()) {
                 return Ok(json_response(rpc_error(
                     message.get("id").cloned().unwrap_or(Value::Null),

@@ -29,6 +29,7 @@ export function remoteStatus(over: Record<string, unknown> = {}) {
     funnelApprovalUrl: null,
     funnelError: null,
     linkMasked: null,
+    reachability: null,
     power: { hasBattery: true, onAc: false, batteryPercent: 64, charging: false },
     keepAwake: false,
     lidClosedMode: false,
@@ -69,6 +70,7 @@ const ON = {
   tailscale: { state: 'connected', dnsName: DNS },
   funnelOn: true,
   linkMasked: MASKED,
+  reachability: { state: 'reachable' },
   keepAwake: true,
   power: { hasBattery: true, onAc: true, batteryPercent: 88, charging: true },
 };
@@ -177,6 +179,15 @@ export const remoteScenarios: Scenario[] = [
     'The masked link with Copy link, three short instructions, and "Waiting for Grok Bot to ' +
       'connect…". Every earlier step is checked off with a summary.',
     { ...ON, projects: [PROJECTS[0]], pushPin: 'set' },
+    choices({ understood: true, projectsConfirmed: true })
+  ),
+  remote(
+    'remote-setup-5-publishing',
+    'Remote access setup — step 5, Funnel on but public DNS not published yet',
+    'The link is shown and copyable, with a spinner explaining Tailscale is still publishing ' +
+      'the address (up to ten minutes the first time). No "Waiting for Grok Bot" and nothing ' +
+      'green — the internet can’t reach it yet. This is the state a real first run hit.',
+    { ...ON, projects: [PROJECTS[0]], pushPin: 'set', reachability: { state: 'noPublicDns' } },
     choices({ understood: true, projectsConfirmed: true })
   ),
   remote(

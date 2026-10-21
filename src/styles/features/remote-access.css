@@ -57,11 +57,21 @@
 
 .remote-waiting {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--spacing-sm);
   margin-top: var(--spacing-md);
   font-size: var(--font-size-body-sm);
   color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.remote-ok {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  color: var(--accent-success);
 }
 
 /* ---- Stepper ------------------------------------------------------------ */
@@ -152,7 +162,18 @@
 }
 
 .remote-step__body {
-  margin: var(--spacing-sm) 0 0 36px; /* css-ok: aligns with the title, past the 24px marker + gap */
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  margin: var(--spacing-md) 0 0 36px; /* css-ok: aligns with the title, past the 24px marker + gap */
+}
+
+/* The body's gap does the spacing; children don't add their own on top. */
+.remote-step__body > .remote-actions,
+.remote-step__body > .remote-waiting,
+.remote-step__body > .remote-lede,
+.remote-step__body > .remote-steps-mini {
+  margin: 0;
 }
 
 .remote-steps-mini {
@@ -222,7 +243,7 @@
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-sm);
-  margin-top: var(--spacing-xs);
+  margin-top: var(--spacing-sm);
   font-size: var(--font-size-body-md);
   color: var(--text-secondary);
   cursor: pointer;
@@ -393,8 +414,8 @@
 .remote-section {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md) 0;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) 0;
   border-top: 1px solid var(--border-subtle);
 }
 

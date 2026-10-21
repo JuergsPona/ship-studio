@@ -32,6 +32,9 @@ pub struct RemoteAccessStatus {
     /// The link with its secret masked, present only when the Funnel is
     /// confirmed on. The real link is only ever copied, never returned.
     pub link_masked: Option<String>,
+    /// Whether a request through the public internet actually reaches this
+    /// server. `None` until the Funnel is on. Only `reachable` is "live".
+    pub reachability: Option<tailscale::Reachability>,
     pub power: power::PowerStatus,
     pub keep_awake: bool,
     pub lid_closed_mode: Option<bool>,
@@ -64,11 +67,12 @@ async fn build_status() -> RemoteAccessStatus {
         }
         _ => false,
     };
-    let link_masked = match &ts {
-        tailscale::TailscaleState::Connected { dns_name } if funnel_on && config.enabled => {
-            Some(mask(dns_name, &config.token))
-        }
-        _ => None,
+    let (link_masked, reachability) = match &ts {
+        tailscale::TailscaleState::Connected { dns_name } if funnel_on && config.enabled => (
+            Some(mask(dns_name, &config.token)),
+            Some(tailscale::public_reachability(dns_name, &config.token).await),
+        ),
+        _ => (None, None),
     };
     let last = LAST_FUNNEL.lock().ok().and_then(|l| l.clone());
     if funnel_on {
@@ -90,6 +94,7 @@ async fn build_status() -> RemoteAccessStatus {
         funnel_approval_url,
         funnel_error,
         link_masked,
+        reachability,
         power: power::read_power().await,
         keep_awake: power::keep_awake_active(),
         lid_closed_mode: power::lid_closed_mode_active().await,
@@ -244,6 +249,7 @@ pub async fn set_remote_access_enabled(
     }
     remote_access::update_config(|c| c.enabled = enabled)?;
     if enabled {
+        tailscale::forget_reachability();
         let outcome = remote_access::bring_up(app).await?;
         if let Ok(mut l) = LAST_FUNNEL.lock() {
             *l = Some(outcome);
@@ -287,6 +293,7 @@ pub async fn reset_remote_link() -> Result<RemoteAccessStatus, CommandError> {
         c.ever_connected = false;
     })?;
     remote_access::clear_pending_push();
+    tailscale::forget_reachability();
     remote_access::audit(
         "new_link",
         None,

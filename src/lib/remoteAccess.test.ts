@@ -25,6 +25,7 @@ function status(overrides: Partial<RemoteAccessStatus> = {}): RemoteAccessStatus
     funnelApprovalUrl: null,
     funnelError: null,
     linkMasked: MASKED,
+    reachability: { state: 'reachable' },
     power: { hasBattery: true, onAc: true, batteryPercent: 90, charging: true },
     keepAwake: true,
     lidClosedMode: true,
@@ -94,6 +95,19 @@ describe('connectionStep', () => {
     expect(connectionStep(status({ linkMasked: null })).kind).toBe('starting');
   });
 
+  it('is not ready until the internet can actually reach it', () => {
+    // The bug a real user hit: Funnel configured, public DNS not published
+    // yet, and we said "live" while Grok Bot couldn't resolve the name.
+    expect(connectionStep(status({ reachability: { state: 'noPublicDns' } }))).toEqual({
+      kind: 'publishing',
+      linkMasked: MASKED,
+    });
+    expect(connectionStep(status({ reachability: null })).kind).toBe('publishing');
+    expect(
+      connectionStep(status({ reachability: { state: 'unreachable', detail: 'timed out' } }))
+    ).toEqual({ kind: 'unreachable', linkMasked: MASKED, detail: 'timed out' });
+  });
+
   it('surfaces the Funnel approval link and failures', () => {
     expect(
       connectionStep(
@@ -150,7 +164,8 @@ describe('setupSteps', () => {
 describe('liveState', () => {
   it('is live only with a confirmed link', () => {
     expect(liveState(status())).toBe('live');
-    expect(liveState(status({ linkMasked: null }))).toBe('down');
+    expect(liveState(status({ linkMasked: null, reachability: null }))).toBe('down');
+    expect(liveState(status({ reachability: { state: 'noPublicDns' } }))).toBe('down');
     expect(liveState(status({ enabled: false }))).toBe('off');
   });
 });

@@ -127,9 +127,11 @@ export function RemoteSetup({ ctl, choices, setChoice, projects, onProjectChange
             Ask Grok Bot: <em>“What are my Ship Studio agents doing?”</em>
           </li>
         </ol>
-        <div className="remote-waiting">
-          <Spinner size="sm" /> Waiting for Grok Bot to connect…
-        </div>
+        {status.reachability?.state === 'reachable' && (
+          <div className="remote-waiting">
+            <Spinner size="sm" /> Waiting for Grok Bot to connect…
+          </div>
+        )}
       </>
     ),
   };

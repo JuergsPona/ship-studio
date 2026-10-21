@@ -266,9 +266,174 @@ pub async fn disable_funnel() -> Result<(), CommandError> {
     )))
 }
 
+// ============================================================================
+// Is it reachable from the internet?
+// ============================================================================
+//
+// "Funnel on" in the serve config is not the same as "reachable". The first
+// time Funnel is enabled, Tailscale still has to publish the machine's name in
+// public DNS, and until it does the link resolves nowhere outside the tailnet
+// — while on this Mac MagicDNS resolves it fine, so a local request proves
+// nothing. A user who pasted the link into Grok Bot during that window got
+// "this address is only reachable inside your tailnet" while we said "Live".
+//
+// So: look the name up the way the internet does (DNS-over-HTTPS to a public
+// resolver), then send one authenticated ping to that public address. Only an
+// answer from our own server counts. The probe carries a per-run header so it
+// is never mistaken for an assistant connecting.
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "state"
+)]
+pub enum Reachability {
+    /// A request through the public internet reached this server.
+    Reachable,
+    /// Public DNS doesn't know the name yet — normal for a few minutes after
+    /// Funnel is first turned on.
+    NoPublicDns,
+    /// The name resolves but the request didn't get through.
+    Unreachable { detail: String },
+}
+
+const DOH_URL: &str = "https://cloudflare-dns.com/dns-query";
+
+/// Pull the A records out of a DNS-over-HTTPS JSON answer.
+pub fn parse_doh_answer(json: &Value) -> Vec<std::net::Ipv4Addr> {
+    json.get("Answer")
+        .and_then(Value::as_array)
+        .map(|answers| {
+            answers
+                .iter()
+                .filter(|a| a.get("type").and_then(Value::as_u64) == Some(1))
+                .filter_map(|a| a.get("data").and_then(Value::as_str)?.parse().ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+async fn public_ipv4(dns_name: &str) -> Result<Vec<std::net::Ipv4Addr>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let json: Value = client
+        .get(DOH_URL)
+        .query(&[("name", dns_name), ("type", "A")])
+        .header("accept", "application/dns-json")
+        .send()
+        .await
+        .map_err(|e| format!("public DNS lookup failed: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("public DNS lookup failed: {e}"))?;
+    Ok(parse_doh_answer(&json))
+}
+
+static REACHABILITY_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<Option<(String, std::time::Instant, Reachability)>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+
+/// Probe the public path, at most every 30 s once reachable (10 s while not),
+/// since the modal polls every 5 s.
+pub async fn public_reachability(dns_name: &str, token: &str) -> Reachability {
+    if let Ok(cache) = REACHABILITY_CACHE.lock() {
+        if let Some((name, at, result)) = cache.as_ref() {
+            let ttl = if *result == Reachability::Reachable {
+                30
+            } else {
+                10
+            };
+            if name == dns_name && at.elapsed() < Duration::from_secs(ttl) {
+                return result.clone();
+            }
+        }
+    }
+    let result = probe(dns_name, token).await;
+    if let Ok(mut cache) = REACHABILITY_CACHE.lock() {
+        *cache = Some((
+            dns_name.to_string(),
+            std::time::Instant::now(),
+            result.clone(),
+        ));
+    }
+    result
+}
+
+/// Forget the last probe — after the link is replaced or Funnel re-enabled.
+pub fn forget_reachability() {
+    if let Ok(mut cache) = REACHABILITY_CACHE.lock() {
+        *cache = None;
+    }
+}
+
+async fn probe(dns_name: &str, token: &str) -> Reachability {
+    let ips = match public_ipv4(dns_name).await {
+        Ok(ips) if ips.is_empty() => return Reachability::NoPublicDns,
+        Ok(ips) => ips,
+        Err(detail) => return Reachability::Unreachable { detail },
+    };
+    let addr = std::net::SocketAddr::from((ips[0], 443));
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .resolve(dns_name, addr)
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return Reachability::Unreachable {
+                detail: e.to_string(),
+            }
+        }
+    };
+    let url = format!("https://{dns_name}{MOUNT_PATH}/mcp/{token}");
+    let response = client
+        .post(url)
+        .header(
+            super::server::PROBE_HEADER,
+            super::server::PROBE_ID.as_str(),
+        )
+        .json(&serde_json::json!({ "jsonrpc": "2.0", "id": 0, "method": "ping" }))
+        .send()
+        .await;
+    match response {
+        Ok(r) if r.status().is_success() => match r.json::<Value>().await {
+            Ok(v) if v.get("result").is_some() => Reachability::Reachable,
+            _ => Reachability::Unreachable {
+                detail: "Something answered at this address, but not Ship Studio.".into(),
+            },
+        },
+        Ok(r) => Reachability::Unreachable {
+            detail: format!("The public address answered {}.", r.status()),
+        },
+        Err(e) => Reachability::Unreachable {
+            detail: format!("Couldn't reach the public address: {e}"),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_a_records_from_a_doh_answer() {
+        let answer = json!({
+            "Status": 0,
+            "Answer": [
+                { "name": "m.t.ts.net", "type": 5, "data": "alias.example." },
+                { "name": "m.t.ts.net", "type": 1, "data": "203.0.113.7" }
+            ]
+        });
+        assert_eq!(
+            parse_doh_answer(&answer),
+            vec!["203.0.113.7".parse::<std::net::Ipv4Addr>().unwrap()]
+        );
+        // NXDOMAIN: no Answer at all — the state a fresh Funnel is in.
+        assert!(parse_doh_answer(&json!({ "Status": 3 })).is_empty());
+    }
     use serde_json::json;
 
     #[test]

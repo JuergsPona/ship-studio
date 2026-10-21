@@ -55,7 +55,9 @@ export function RemoteLive({ ctl, projects, onProjectChange, activity }: Props) 
     state === 'live'
       ? (lastRequest ?? 'Waiting for Grok Bot’s next message')
       : state === 'down'
-        ? 'Remote access is on, but Tailscale isn’t serving the link right now.'
+        ? status.reachability?.state === 'noPublicDns'
+          ? 'Tailscale is still publishing this computer’s address.'
+          : 'Remote access is on, but the internet can’t reach this computer right now.'
         : 'Grok Bot can’t reach this computer.';
 
   return (

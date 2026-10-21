@@ -43,6 +43,11 @@ export interface RemoteActivity {
 
 export type PushPinState = 'notSet' | 'set' | 'locked';
 
+export type Reachability =
+  | { state: 'reachable' }
+  | { state: 'noPublicDns' }
+  | { state: 'unreachable'; detail: string };
+
 export interface RemoteAccessStatus {
   supported: boolean;
   enabled: boolean;
@@ -51,8 +56,14 @@ export interface RemoteAccessStatus {
   funnelOn: boolean;
   funnelApprovalUrl: string | null;
   funnelError: string | null;
-  /** The link with its secret masked; present only once Tailscale confirms it's live. */
+  /** The link with its secret masked; present once Tailscale confirms the Funnel. */
   linkMasked: string | null;
+  /**
+   * Whether a request through the public internet actually reached this
+   * computer. Null until the Funnel is on. Only `reachable` counts as live —
+   * the Funnel being configured isn't enough (see Reachability in tailscale.rs).
+   */
+  reachability: Reachability | null;
   power: PowerStatus;
   keepAwake: boolean;
   lidClosedMode: boolean | null;
@@ -230,12 +241,18 @@ export type ConnectionStep =
   | { kind: 'approveFunnel'; url: string }
   | { kind: 'funnelFailed'; detail: string }
   | { kind: 'starting' }
+  /** Funnel is on, but the internet can't find this computer yet. */
+  | { kind: 'publishing'; linkMasked: string }
+  /** Funnel is on and the name resolves, but requests don't get through. */
+  | { kind: 'unreachable'; linkMasked: string; detail: string }
   | { kind: 'ready'; linkMasked: string };
 
 /**
  * One state, in the order the blockers have to be cleared: you can't turn on
- * a Funnel you can't sign in to, and a link is only shown once Tailscale says
- * it is live.
+ * a Funnel you can't sign in to, and "ready" means a request from the public
+ * internet actually reached this computer — not just that Tailscale is
+ * configured. Until then the link is shown (so it can be added in advance)
+ * with what's still missing.
  */
 export function connectionStep(s: RemoteAccessStatus): ConnectionStep {
   if (!s.supported) return { kind: 'unsupported' };
@@ -250,7 +267,14 @@ export function connectionStep(s: RemoteAccessStatus): ConnectionStep {
       break;
   }
   if (!s.enabled) return { kind: 'off' };
-  if (s.linkMasked) return { kind: 'ready', linkMasked: s.linkMasked };
+  if (s.linkMasked) {
+    const r = s.reachability;
+    if (r?.state === 'reachable') return { kind: 'ready', linkMasked: s.linkMasked };
+    if (r?.state === 'unreachable') {
+      return { kind: 'unreachable', linkMasked: s.linkMasked, detail: r.detail };
+    }
+    return { kind: 'publishing', linkMasked: s.linkMasked };
+  }
   if (s.funnelApprovalUrl) return { kind: 'approveFunnel', url: s.funnelApprovalUrl };
   if (s.funnelError) return { kind: 'funnelFailed', detail: s.funnelError };
   return { kind: 'starting' };
@@ -339,10 +363,10 @@ export function isSetupComplete(s: RemoteAccessStatus, c: SetupChoices): boolean
 
 export type LiveState = 'live' | 'down' | 'off';
 
-/** "Live" only when the link is confirmed; on but unconfirmed is "down". */
+/** "Live" only when the internet can actually reach it; anything less is "down". */
 export function liveState(s: RemoteAccessStatus): LiveState {
   if (!s.enabled) return 'off';
-  return s.linkMasked ? 'live' : 'down';
+  return s.reachability?.state === 'reachable' ? 'live' : 'down';
 }
 
 export function agoText(ms: number, now: number): string {

@@ -222,8 +222,41 @@ export function ConnectionPanel({ ctl }: { ctl: RemoteCtl }) {
           <Spinner size="sm" /> Waiting for Tailscale to confirm the link…
         </div>
       );
+    case 'publishing':
+      return (
+        <>
+          <LinkRow ctl={ctl} />
+          <div className="remote-waiting" data-testid="remote-publishing">
+            <Spinner size="sm" />
+            <span>
+              Tailscale is publishing this computer’s address. The first time can take up to ten
+              minutes — you can add the link to Grok Bot now; it starts working once this turns
+              green.
+            </span>
+          </div>
+        </>
+      );
+    case 'unreachable':
+      return (
+        <>
+          <LinkRow ctl={ctl} />
+          <p className="remote-error">Not reachable from the internet yet: {step.detail}</p>
+          <div className="remote-actions">
+            <Button variant="secondary" {...busyProps(busy, 'check')} onClick={recheck}>
+              Check again
+            </Button>
+          </div>
+        </>
+      );
     case 'ready':
-      return <LinkRow ctl={ctl} />;
+      return (
+        <>
+          <LinkRow ctl={ctl} />
+          <p className="remote-ok">
+            <SuccessIcon size={14} /> Reachable from the internet — checked just now.
+          </p>
+        </>
+      );
   }
 }
 
