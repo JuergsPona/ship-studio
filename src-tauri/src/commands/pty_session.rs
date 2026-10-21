@@ -952,11 +952,15 @@ mod tests {
     mod pty_handle_release {
         use super::*;
 
-        /// Is this descriptor still open in this process? `/dev/fd/<n>` is
-        /// the portable (macOS + Linux) way to ask; it stats as a bad file
-        /// descriptor once the fd is closed.
-        fn fd_is_open(fd: std::os::unix::io::RawFd) -> bool {
-            std::fs::metadata(format!("/dev/fd/{fd}")).is_ok()
+        /// Identify the open object behind this descriptor. `/dev/fd/<n>` is
+        /// the portable (macOS + Linux) way to inspect it. Comparing identity
+        /// avoids a false failure if another parallel test reuses the number
+        /// after this test closes it.
+        fn fd_identity(fd: std::os::unix::io::RawFd) -> Option<(u64, u64, u64)> {
+            use std::os::unix::fs::MetadataExt;
+
+            let metadata = std::fs::metadata(format!("/dev/fd/{fd}")).ok()?;
+            Some((metadata.dev(), metadata.ino(), metadata.rdev()))
         }
 
         /// Build a registry `Session` around a real PTY whose child has
@@ -1005,12 +1009,12 @@ mod tests {
                 .as_ref()
                 .and_then(|m| m.as_raw_fd())
                 .expect("a unix MasterPty exposes its fd");
-            assert!(fd_is_open(master_fd), "the PTY master starts open");
+            let master_identity = fd_identity(master_fd).expect("the PTY master starts open");
 
             session.release_pty_handles();
 
             assert!(
-                !fd_is_open(master_fd),
+                fd_identity(master_fd) != Some(master_identity),
                 "an exited session must not keep its pseudo-terminal open (issue #540)"
             );
             // The record itself survives — scrollback replay and the exit code
