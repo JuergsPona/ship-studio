@@ -28,7 +28,7 @@ import {
   type RemoteAccessStatus,
   type SetupChoices,
 } from '../../lib/remoteAccess';
-import { errMsg, type RemoteCtl } from './parts';
+import { errMsg, RemoteOnBar, type RemoteCtl } from './parts';
 import { RemoteSetup } from './RemoteSetup';
 import { RemoteLive } from './RemoteLive';
 
@@ -158,6 +158,7 @@ export function RemoteAccessModal({ isOpen, onClose }: RemoteAccessModalProps) {
               Keep your agents going from your phone. Grok Bot drives Ship Studio on this computer —
               the same tabs, the same conversations — so everything is waiting when you’re back.
             </p>
+            <RemoteOnBar ctl={ctl} />
             <RemoteSetup
               ctl={ctl}
               choices={choices}

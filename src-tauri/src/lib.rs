@@ -802,6 +802,7 @@ pub fn run() {
             commands::remote_access::set_remote_access_enabled,
             commands::remote_access::set_remote_project,
             commands::remote_access::reset_remote_link,
+            commands::remote_access::republish_remote_link,
             commands::remote_access::set_lid_closed_mode,
             commands::remote_access::set_open_at_login,
             // Project Type Detection

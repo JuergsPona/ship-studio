@@ -43,6 +43,14 @@ export interface RemoteActivity {
 
 export type PushPinState = 'notSet' | 'set' | 'locked';
 
+export interface PublishProgress {
+  sinceMs: number | null;
+  /** Ship Studio already asked Tailscale again by itself. */
+  autoRetried: boolean;
+  /** The background check stopped waiting; it's over to the user. */
+  gaveUp: boolean;
+}
+
 export type Reachability =
   | { state: 'reachable' }
   | { state: 'noPublicDns' }
@@ -64,6 +72,8 @@ export interface RemoteAccessStatus {
    * the Funnel being configured isn't enough (see Reachability in tailscale.rs).
    */
   reachability: Reachability | null;
+  /** The wait for the address to go public, and what's been tried. */
+  publish: PublishProgress;
   power: PowerStatus;
   keepAwake: boolean;
   lidClosedMode: boolean | null;
@@ -104,6 +114,7 @@ export const setRemoteAccessEnabled = (enabled: boolean) =>
 export const setRemoteProject = (projectPath: string, shared: boolean) =>
   invoke<string[]>('set_remote_project', { projectPath, shared });
 export const resetRemoteLink = () => invoke<RemoteAccessStatus>('reset_remote_link');
+export const republishRemoteLink = () => invoke<RemoteAccessStatus>('republish_remote_link');
 export const copyRemoteLink = () => invoke<void>('copy_remote_link');
 export const setLidClosedMode = (enabled: boolean) =>
   invoke<RemoteAccessStatus>('set_lid_closed_mode', { enabled });
@@ -242,7 +253,7 @@ export type ConnectionStep =
   | { kind: 'funnelFailed'; detail: string }
   | { kind: 'starting' }
   /** Funnel is on, but the internet can't find this computer yet. */
-  | { kind: 'publishing'; linkMasked: string }
+  | { kind: 'publishing'; linkMasked: string; stage: PublishStage; minutes: number }
   /** Funnel is on and the name resolves, but requests don't get through. */
   | { kind: 'unreachable'; linkMasked: string; detail: string }
   | { kind: 'ready'; linkMasked: string };
@@ -254,7 +265,16 @@ export type ConnectionStep =
  * configured. Until then the link is shown (so it can be added in advance)
  * with what's still missing.
  */
-export function connectionStep(s: RemoteAccessStatus): ConnectionStep {
+export type PublishStage = 'waiting' | 'retried' | 'stuck';
+
+/** Where the wait for a public address has got to. */
+export function publishStage(p: PublishProgress, minutes: number): PublishStage {
+  if (p.gaveUp || minutes >= 10) return 'stuck';
+  if (p.autoRetried) return 'retried';
+  return 'waiting';
+}
+
+export function connectionStep(s: RemoteAccessStatus, now: number = 0): ConnectionStep {
   if (!s.supported) return { kind: 'unsupported' };
   switch (s.tailscale.state) {
     case 'notInstalled':
@@ -273,7 +293,14 @@ export function connectionStep(s: RemoteAccessStatus): ConnectionStep {
     if (r?.state === 'unreachable') {
       return { kind: 'unreachable', linkMasked: s.linkMasked, detail: r.detail };
     }
-    return { kind: 'publishing', linkMasked: s.linkMasked };
+    const minutes =
+      s.publish.sinceMs !== null ? Math.max(0, Math.floor((now - s.publish.sinceMs) / 60_000)) : 0;
+    return {
+      kind: 'publishing',
+      linkMasked: s.linkMasked,
+      stage: publishStage(s.publish, minutes),
+      minutes,
+    };
   }
   if (s.funnelApprovalUrl) return { kind: 'approveFunnel', url: s.funnelApprovalUrl };
   if (s.funnelError) return { kind: 'funnelFailed', detail: s.funnelError };

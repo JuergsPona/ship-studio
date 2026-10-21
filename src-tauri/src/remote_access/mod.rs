@@ -533,12 +533,16 @@ pub async fn bring_up(app: tauri::AppHandle) -> Result<tailscale::FunnelOutcome,
             tailscale::FunnelOutcome::Failed { detail }
         }
     };
+    if outcome == tailscale::FunnelOutcome::On {
+        start_publish_watch(port);
+    }
     Ok(outcome)
 }
 
 /// Take everything down. The Funnel goes first so nothing new arrives while
 /// the server stops.
 pub async fn tear_down() {
+    stop_publish_watch();
     if tailscale::find_binary().is_some() {
         if let Err(e) = tailscale::disable_funnel().await {
             tracing::warn!("[Remote] Could not remove the Funnel: {}", e);
@@ -546,6 +550,147 @@ pub async fn tear_down() {
     }
     stop_server();
     power::stop_keep_awake();
+}
+
+// ============================================================================
+// Publishing — getting from "Funnel on" to "the internet can reach it"
+// ============================================================================
+//
+// A real first run sat with Funnel on and Tailscale's public DNS holding no
+// record for the machine, and the user had nothing to press. So once the
+// Funnel is on, a watchdog checks the public path; if the address still isn't
+// published after a few minutes it asks Tailscale again (Funnel off and on)
+// once, by itself, and it keeps the timeline so the UI can say how long it
+// has been and what was tried. The user can also ask again at any time.
+
+/// How long to wait before asking Tailscale again on the user's behalf.
+const AUTO_REPUBLISH_AFTER: std::time::Duration = std::time::Duration::from_secs(2 * 60);
+/// How long the watchdog keeps checking before leaving it to the user.
+const PUBLISH_WATCH_FOR: std::time::Duration = std::time::Duration::from_secs(20 * 60);
+const PUBLISH_CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(20);
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishProgress {
+    /// When the Funnel was (last) turned on and we started waiting, Unix ms.
+    pub since_ms: Option<u64>,
+    /// Ship Studio already asked Tailscale again by itself.
+    pub auto_retried: bool,
+    /// The watchdog gave up waiting; it's over to the user.
+    pub gave_up: bool,
+}
+
+struct PublishWatch {
+    progress: PublishProgress,
+    generation: u64,
+}
+
+static PUBLISH: LazyLock<Mutex<PublishWatch>> = LazyLock::new(|| {
+    Mutex::new(PublishWatch {
+        progress: PublishProgress::default(),
+        generation: 0,
+    })
+});
+
+pub fn publish_progress() -> PublishProgress {
+    PUBLISH
+        .lock()
+        .map(|p| p.progress.clone())
+        .unwrap_or_default()
+}
+
+fn stop_publish_watch() {
+    if let Ok(mut p) = PUBLISH.lock() {
+        p.generation += 1;
+        p.progress = PublishProgress::default();
+    }
+}
+
+/// Start (or restart) waiting for the public address. Each start bumps a
+/// generation number, so an older watchdog notices and stops.
+fn start_publish_watch(port: u16) {
+    let generation = {
+        let Ok(mut p) = PUBLISH.lock() else { return };
+        p.generation += 1;
+        p.progress = PublishProgress {
+            since_ms: Some(now_ms()),
+            auto_retried: false,
+            gave_up: false,
+        };
+        p.generation
+    };
+    tailscale::forget_reachability();
+    tokio::spawn(async move {
+        let started = std::time::Instant::now();
+        loop {
+            tokio::time::sleep(PUBLISH_CHECK_EVERY).await;
+            let current = PUBLISH.lock().map(|p| p.generation).unwrap_or(0);
+            if current != generation {
+                return;
+            }
+            let tailscale::TailscaleState::Connected { dns_name } = tailscale::status().await
+            else {
+                continue;
+            };
+            let token = read_config().token;
+            if tailscale::public_reachability(&dns_name, &token).await
+                == tailscale::Reachability::Reachable
+            {
+                if let Ok(mut p) = PUBLISH.lock() {
+                    if p.generation == generation {
+                        p.progress.since_ms = None;
+                    }
+                }
+                tracing::info!("[Remote] Reachable from the internet");
+                return;
+            }
+            let auto_retried = publish_progress().auto_retried;
+            if !auto_retried && started.elapsed() >= AUTO_REPUBLISH_AFTER {
+                tracing::warn!("[Remote] Still not published; asking Tailscale again");
+                let _ = tailscale::disable_funnel().await;
+                let outcome = tailscale::enable_funnel(port).await;
+                tailscale::forget_reachability();
+                audit(
+                    "republish",
+                    None,
+                    format!("asked Tailscale to publish the address again ({outcome:?})"),
+                    outcome == tailscale::FunnelOutcome::On,
+                );
+                if let Ok(mut p) = PUBLISH.lock() {
+                    if p.generation == generation {
+                        p.progress.auto_retried = true;
+                    }
+                }
+            }
+            if started.elapsed() >= PUBLISH_WATCH_FOR {
+                if let Ok(mut p) = PUBLISH.lock() {
+                    if p.generation == generation {
+                        p.progress.gave_up = true;
+                    }
+                }
+                return;
+            }
+        }
+    });
+}
+
+/// Ask Tailscale to publish the address again: Funnel off, Funnel on, and
+/// start waiting afresh. What "Ask Tailscale again" does.
+pub async fn republish() -> Result<tailscale::FunnelOutcome, CommandError> {
+    let port =
+        running_port().ok_or_else(|| CommandError::expected("Remote access isn't running."))?;
+    let _ = tailscale::disable_funnel().await;
+    let outcome = tailscale::enable_funnel(port).await;
+    if outcome == tailscale::FunnelOutcome::On {
+        start_publish_watch(port);
+    }
+    audit(
+        "republish",
+        None,
+        "asked Tailscale to publish the address again".into(),
+        outcome == tailscale::FunnelOutcome::On,
+    );
+    Ok(outcome)
 }
 
 /// Called at launch: if the user left remote access on, put it back.

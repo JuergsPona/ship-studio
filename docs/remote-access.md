@@ -176,6 +176,20 @@ Grok Bot ──HTTPS──▶ Tailscale ──▶ tailscaled Funnel (/shipstudio
   with funnel allowed. First use needs the tailnet owner's approval: the CLI
   prints a link and waits, so we read its output as it arrives and surface the
   link.
+- **Configured isn't reachable.** On the first real run, Funnel was on and the
+  admin console showed the Funnel badge, but Tailscale never published the
+  machine's name in public DNS. Even the authoritative `ts.net` nameservers had
+  no record, so Grok Bot couldn't resolve it. Turning Funnel off and on again
+  published it within about 100 seconds. So:
+  - "Live" now means a real request made it through the public path: a
+    DNS-over-HTTPS lookup of the name, then an authenticated ping sent to that
+    public address. The probe carries a per-run header so it never counts as an
+    assistant connecting.
+  - A watchdog asks Tailscale again by itself after 2 minutes of not being
+    published.
+  - The UI shows how many minutes it's been, and always offers **Ask Tailscale
+    again**.
+  - **Turn off** is always visible while remote access is on, setup included.
 
 ## Tools
 

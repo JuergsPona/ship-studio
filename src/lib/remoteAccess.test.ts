@@ -26,6 +26,7 @@ function status(overrides: Partial<RemoteAccessStatus> = {}): RemoteAccessStatus
     funnelError: null,
     linkMasked: MASKED,
     reachability: { state: 'reachable' },
+    publish: { sinceMs: null, autoRetried: false, gaveUp: false },
     power: { hasBattery: true, onAc: true, batteryPercent: 90, charging: true },
     keepAwake: true,
     lidClosedMode: true,
@@ -98,9 +99,10 @@ describe('connectionStep', () => {
   it('is not ready until the internet can actually reach it', () => {
     // The bug a real user hit: Funnel configured, public DNS not published
     // yet, and we said "live" while Grok Bot couldn't resolve the name.
-    expect(connectionStep(status({ reachability: { state: 'noPublicDns' } }))).toEqual({
+    expect(connectionStep(status({ reachability: { state: 'noPublicDns' } }))).toMatchObject({
       kind: 'publishing',
       linkMasked: MASKED,
+      stage: 'waiting',
     });
     expect(connectionStep(status({ reachability: null })).kind).toBe('publishing');
     expect(
@@ -158,6 +160,25 @@ describe('setupSteps', () => {
       'upcoming',
       'upcoming',
     ]);
+  });
+});
+
+describe('publishing', () => {
+  const at = (sinceMs: number, over = {}) =>
+    status({
+      reachability: { state: 'noPublicDns' },
+      publish: { sinceMs, autoRetried: false, gaveUp: false, ...over },
+    });
+
+  it('counts the minutes and moves from waiting to retried to stuck', () => {
+    expect(connectionStep(at(0), 3 * 60_000)).toMatchObject({ stage: 'waiting', minutes: 3 });
+    expect(connectionStep(at(0, { autoRetried: true }), 4 * 60_000)).toMatchObject({
+      stage: 'retried',
+    });
+    expect(connectionStep(at(0, { autoRetried: true }), 11 * 60_000)).toMatchObject({
+      stage: 'stuck',
+    });
+    expect(connectionStep(at(0, { gaveUp: true }), 60_000)).toMatchObject({ stage: 'stuck' });
   });
 });
 

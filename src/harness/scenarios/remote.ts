@@ -30,6 +30,7 @@ export function remoteStatus(over: Record<string, unknown> = {}) {
     funnelError: null,
     linkMasked: null,
     reachability: null,
+    publish: { sinceMs: null, autoRetried: false, gaveUp: false },
     power: { hasBattery: true, onAc: false, batteryPercent: 64, charging: false },
     keepAwake: false,
     lidClosedMode: false,
@@ -188,6 +189,21 @@ export const remoteScenarios: Scenario[] = [
       'the address (up to ten minutes the first time). No "Waiting for Grok Bot" and nothing ' +
       'green — the internet can’t reach it yet. This is the state a real first run hit.',
     { ...ON, projects: [PROJECTS[0]], pushPin: 'set', reachability: { state: 'noPublicDns' } },
+    choices({ understood: true, projectsConfirmed: true })
+  ),
+  remote(
+    'remote-setup-5-retried',
+    'Remote access setup — still publishing, Ship Studio already asked Tailscale again',
+    'The green "Remote access is on" bar with Turn off sits above the steps. Step 5 says it took ' +
+      'longer than usual and that Ship Studio asked Tailscale again, with the minutes so far and ' +
+      'an "Ask Tailscale again" button. This is the real first-run failure, now self-healing.',
+    {
+      ...ON,
+      projects: [PROJECTS[0]],
+      pushPin: 'set',
+      reachability: { state: 'noPublicDns' },
+      publish: { sinceMs: Date.now() - 3 * MIN, autoRetried: true, gaveUp: false },
+    },
     choices({ understood: true, projectsConfirmed: true })
   ),
   remote(

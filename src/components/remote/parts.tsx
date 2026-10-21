@@ -29,6 +29,7 @@ import {
   getRemoteAccessStatus,
   pinProblem,
   readinessItems,
+  republishRemoteLink,
   resetRemoteLink,
   setLidClosedMode,
   setOpenAtLogin,
@@ -119,7 +120,7 @@ export function ReadinessList({ ctl }: { ctl: RemoteCtl }) {
 /** Everything between "no Tailscale" and "the link is live". */
 export function ConnectionPanel({ ctl }: { ctl: RemoteCtl }) {
   const { status, busy, act } = ctl;
-  const step = connectionStep(status);
+  const step = connectionStep(status, ctl.now);
   const turnOn = () => void act('enable', () => setRemoteAccessEnabled(true));
   const recheck = () => void act('check', getRemoteAccessStatus);
 
@@ -222,20 +223,36 @@ export function ConnectionPanel({ ctl }: { ctl: RemoteCtl }) {
           <Spinner size="sm" /> Waiting for Tailscale to confirm the link…
         </div>
       );
-    case 'publishing':
+    case 'publishing': {
+      const elapsed = step.minutes > 0 ? ` (${step.minutes} min so far)` : '';
+      const message = {
+        waiting: `Tailscale is making this address public — usually a minute or two${elapsed}. You can add the link to Grok Bot now; it starts working once this turns green.`,
+        retried: `That took longer than usual, so Ship Studio asked Tailscale again${elapsed}. It normally goes through within a couple of minutes of asking.`,
+        stuck: `Tailscale still hasn’t made this address public${elapsed}. Ask again below — if that doesn’t do it, the hold-up is on Tailscale’s side.`,
+      }[step.stage];
       return (
         <>
           <LinkRow ctl={ctl} />
-          <div className="remote-waiting" data-testid="remote-publishing">
-            <Spinner size="sm" />
-            <span>
-              Tailscale is publishing this computer’s address. The first time can take up to ten
-              minutes — you can add the link to Grok Bot now; it starts working once this turns
-              green.
-            </span>
+          <div
+            className={`remote-waiting${step.stage === 'stuck' ? ' remote-waiting--warn' : ''}`}
+            data-testid="remote-publishing"
+          >
+            {step.stage === 'stuck' ? <WarningIcon size={14} /> : <Spinner size="sm" />}
+            <span>{message}</span>
+          </div>
+          <div className="remote-actions">
+            <Button
+              variant="secondary"
+              size="compact"
+              {...busyProps(busy, 'republish')}
+              onClick={() => void act('republish', republishRemoteLink)}
+            >
+              Ask Tailscale again
+            </Button>
           </div>
         </>
       );
+    }
     case 'unreachable':
       return (
         <>
@@ -258,6 +275,32 @@ export function ConnectionPanel({ ctl }: { ctl: RemoteCtl }) {
         </>
       );
   }
+}
+
+/**
+ * Shown above setup whenever remote access is on, so it can always be turned
+ * off — including mid-setup, when the live view (and its Turn off) isn't
+ * reachable yet.
+ */
+export function RemoteOnBar({ ctl }: { ctl: RemoteCtl }) {
+  const { status, busy, act } = ctl;
+  if (!status.enabled) return null;
+  return (
+    <div className="remote-onbar" data-testid="remote-onbar">
+      <span className="remote-onbar__dot" aria-hidden />
+      <span className="remote-onbar__text">
+        Remote access is on — this computer is being kept awake.
+      </span>
+      <Button
+        variant="secondary"
+        size="compact"
+        {...busyProps(busy, 'disable')}
+        onClick={() => void act('disable', () => setRemoteAccessEnabled(false))}
+      >
+        Turn off
+      </Button>
+    </div>
+  );
 }
 
 /** The masked link, Copy, and New link. The real link never reaches the page. */

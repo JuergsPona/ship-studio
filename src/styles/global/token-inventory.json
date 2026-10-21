@@ -4187,7 +4187,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 376
+      "consumerCount": 377
     },
     {
       "name": "--text-muted",
@@ -4340,7 +4340,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 77
+      "consumerCount": 78
     },
     {
       "name": "--accent-warning",
@@ -4349,7 +4349,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 82
+      "consumerCount": 83
     },
     {
       "name": "--accent-error",
@@ -4547,7 +4547,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 284
+      "consumerCount": 285
     },
     {
       "name": "--font-size-control",
@@ -4808,7 +4808,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 28
+      "consumerCount": 30
     },
     {
       "name": "--accent-warning-rgb",
@@ -4880,7 +4880,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 434
+      "consumerCount": 436
     },
     {
       "name": "--spacing-md",
@@ -4889,7 +4889,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 347
+      "consumerCount": 348
     },
     {
       "name": "--spacing-lg",
@@ -4898,7 +4898,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 150
+      "consumerCount": 151
     },
     {
       "name": "--spacing-xl",
@@ -4934,7 +4934,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 146
+      "consumerCount": 147
     },
     {
       "name": "--radius-sm",
@@ -4961,7 +4961,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 34
+      "consumerCount": 35
     },
     {
       "name": "--tint-subtle",

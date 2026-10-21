@@ -35,6 +35,9 @@ pub struct RemoteAccessStatus {
     /// Whether a request through the public internet actually reaches this
     /// server. `None` until the Funnel is on. Only `reachable` is "live".
     pub reachability: Option<tailscale::Reachability>,
+    /// How long we've been waiting for the address to go public, and whether
+    /// Ship Studio already asked Tailscale again.
+    pub publish: remote_access::PublishProgress,
     pub power: power::PowerStatus,
     pub keep_awake: bool,
     pub lid_closed_mode: Option<bool>,
@@ -95,6 +98,7 @@ async fn build_status() -> RemoteAccessStatus {
         funnel_error,
         link_masked,
         reachability,
+        publish: remote_access::publish_progress(),
         power: power::read_power().await,
         keep_awake: power::keep_awake_active(),
         lid_closed_mode: power::lid_closed_mode_active().await,
@@ -281,6 +285,17 @@ pub async fn set_remote_project(
         }
         c.projects.clone()
     })
+}
+
+/// Ask Tailscale to publish the address again (Funnel off and on).
+#[tauri::command]
+#[tracing::instrument]
+pub async fn republish_remote_link() -> Result<RemoteAccessStatus, CommandError> {
+    let outcome = remote_access::republish().await?;
+    if let Ok(mut l) = LAST_FUNNEL.lock() {
+        *l = Some(outcome);
+    }
+    Ok(build_status().await)
 }
 
 /// Replace the token. The old connector URL stops working immediately.
