@@ -56,7 +56,7 @@ fn connector_url(dns_name: &str, token: &str) -> String {
 fn mask(dns_name: &str, token: &str) -> String {
     connector_url(
         dns_name,
-        &format!("{}••••••••", &token[..token.len().min(4)]),
+        &format!("{}••••••••", token.chars().take(4).collect::<String>()),
     )
 }
 

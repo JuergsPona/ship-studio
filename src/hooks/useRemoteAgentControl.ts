@@ -108,7 +108,14 @@ export function useRemoteAgentControl({
   closeTerminalTab,
   openProject,
 }: Params): void {
-  const [pending, setPending] = useState<RemoteRequest | null>(null);
+  // A queue, not a slot: two requests can arrive while a project is still
+  // opening, and the second must not silently replace the first (the backend
+  // would then wait a full minute for a tab that was never asked for).
+  const [queue, setQueue] = useState<RemoteRequest[]>([]);
+  const pending = queue[0] ?? null;
+  const enqueue = (request: RemoteRequest) => setQueue((q) => [...q, request]);
+  // Finish the head of the queue — only if it's still the one we acted on.
+  const finish = (done: RemoteRequest) => setQueue((q) => (q[0] === done ? q.slice(1) : q));
 
   useEffect(() => {
     const unlistenStart = listen<{ projectPath: string; prompt: string; sessionId: string }>(
@@ -116,7 +123,7 @@ export function useRemoteAgentControl({
       (event) => {
         const { projectPath, prompt, sessionId } = event.payload;
         logger.info('[Remote] Asked to start an agent', { projectPath });
-        setPending({ kind: 'start', projectPath, prompt, sessionId, receivedAt: Date.now() });
+        enqueue({ kind: 'start', projectPath, prompt, sessionId, receivedAt: Date.now() });
       }
     );
     const unlistenClose = listen<{ projectPath: string; sessionId: string }>(
@@ -124,7 +131,7 @@ export function useRemoteAgentControl({
       (event) => {
         const { projectPath, sessionId } = event.payload;
         logger.info('[Remote] Asked to close an agent', { projectPath });
-        setPending({ kind: 'close', projectPath, sessionId, receivedAt: Date.now() });
+        enqueue({ kind: 'close', projectPath, sessionId, receivedAt: Date.now() });
       }
     );
     return () => {
@@ -138,7 +145,8 @@ export function useRemoteAgentControl({
   const pendingPath = pending?.projectPath ?? null;
   const needsOpen = pendingPath !== null && (!inWorkspace || currentProjectPath !== pendingPath);
   useEffect(() => {
-    if (!needsOpen || !pendingPath) return;
+    if (!needsOpen || !pendingPath || !pending) return;
+    const request = pending;
     void Promise.resolve(
       openProject({ name: basename(pendingPath), path: pendingPath, thumbnail: null })
     ).catch((err: unknown) => {
@@ -146,11 +154,12 @@ export function useRemoteAgentControl({
         projectPath: pendingPath,
         error: String(err),
       });
-      setPending(null);
+      finish(request);
     });
-    // Only when the request changes — not on every render while it waits.
+    // Only when the head of the queue changes — not on every render while it
+    // waits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending?.receivedAt]);
+  }, [pending]);
 
   useEffect(() => {
     if (!pending) return;
@@ -165,17 +174,17 @@ export function useRemoteAgentControl({
         projectPath: pending.projectPath,
         sessionId: pending.sessionId,
       });
-      setPending(null);
+      finish(pending);
     } else if (step.do === 'close') {
       closeTerminalTab(step.tabId);
-      setPending(null);
+      finish(pending);
     } else if (step.do === 'drop') {
       logger.warn('[Remote] Did not act on a remote request', {
         projectPath: pending.projectPath,
         kind: pending.kind,
         reason: step.reason,
       });
-      setPending(null);
+      finish(pending);
     }
   }, [
     pending,
@@ -191,10 +200,7 @@ export function useRemoteAgentControl({
   // nothing else re-renders, or it would never expire.
   useEffect(() => {
     if (!pending) return;
-    const timer = window.setTimeout(
-      () => setPending((p) => (p && p.receivedAt === pending.receivedAt ? null : p)),
-      GIVE_UP_MS + 1_000
-    );
+    const timer = window.setTimeout(() => finish(pending), GIVE_UP_MS + 1_000);
     return () => window.clearTimeout(timer);
   }, [pending]);
 }

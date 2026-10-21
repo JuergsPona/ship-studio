@@ -123,13 +123,13 @@ pub fn update_config<T>(f: impl FnOnce(&mut RemoteConfig) -> T) -> Result<T, Com
     Ok(out)
 }
 
-/// 256 bits from the OS RNG (two v4 UUIDs' worth of random), hex.
+/// 256 bits from the OS RNG, hex.
 pub fn new_token() -> String {
-    format!(
-        "{}{}",
-        uuid::Uuid::new_v4().simple(),
-        uuid::Uuid::new_v4().simple()
-    )
+    let mut bytes = [0u8; 32];
+    // The OS CSPRNG. If it's unavailable there's no safe token to mint, and
+    // a predictable one would be worse than refusing to start.
+    getrandom::getrandom(&mut bytes).expect("the OS random number generator is unavailable");
+    hex::encode(bytes)
 }
 
 /// The token, minting one on first use.
@@ -390,7 +390,12 @@ pub fn push_pin_state(config: &RemoteConfig) -> PushPinState {
 #[derive(Debug, Clone)]
 pub(crate) struct PendingPush {
     pub project_path: String,
+    /// The branch the summary named — what gets pushed to, whatever is
+    /// checked out by the time the PIN arrives.
+    pub branch: String,
     pub head: String,
+    /// The git tree the working copy would commit as (see
+    /// `tools::frozen_tree`): an exact content hash of everything summarised.
     pub tree_fingerprint: String,
     pub created_ms: u64,
 }
@@ -473,7 +478,7 @@ pub(crate) async fn check_push(
     head: &str,
     tree_fingerprint: &str,
     now: u64,
-) -> PushCheck {
+) -> (PushCheck, Option<PendingPush>) {
     let _serial = PIN_CHECK.lock().await;
     let config = read_config();
     let pending = PENDING_PUSH.lock().ok().and_then(|p| p.clone());
@@ -512,7 +517,8 @@ pub(crate) async fn check_push(
     ) {
         clear_pending_push();
     }
-    result
+    let confirmed = (result == PushCheck::Ok).then_some(pending).flatten();
+    (result, confirmed)
 }
 
 // ============================================================================
@@ -737,6 +743,7 @@ mod tests {
     fn pending() -> PendingPush {
         PendingPush {
             project_path: "/p".into(),
+            branch: "main".into(),
             head: "abc".into(),
             tree_fingerprint: "t1".into(),
             created_ms: 1_000,

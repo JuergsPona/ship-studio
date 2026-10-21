@@ -408,8 +408,10 @@ async fn probe(dns_name: &str, token: &str) -> Reachability {
         Ok(r) => Reachability::Unreachable {
             detail: format!("The public address answered {}.", r.status()),
         },
+        // `without_url`: reqwest's message otherwise includes the URL, which
+        // contains the connector token — and this text is shown in the UI.
         Err(e) => Reachability::Unreachable {
-            detail: format!("Couldn't reach the public address: {e}"),
+            detail: format!("Couldn't reach the public address: {}", e.without_url()),
         },
     }
 }

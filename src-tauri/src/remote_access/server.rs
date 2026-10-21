@@ -28,7 +28,7 @@ type ServerBody = BoxBody<Bytes, hyper::Error>;
 const MAX_BODY_BYTES: usize = 1024 * 1024;
 /// Concurrent connections served at once. A phone is one client; this only
 /// bounds what a misbehaving one can make us do.
-const MAX_CONNECTIONS: usize = 16;
+const MAX_CONNECTIONS: usize = 64;
 
 /// Marks Ship Studio's own reachability probe. The value is random per run,
 /// so nothing outside this process can use it to hide from the audit log.
@@ -43,8 +43,6 @@ const READ_ONLY_TOOLS: &[&str] = &[
     "git_status",
 ];
 
-/// Delay before answering a request without a valid token.
-const REJECT_DELAY_MS: u64 = 400;
 /// Authenticated requests allowed per rolling minute. A person chatting from
 /// a phone makes a handful; this bounds a runaway or hijacked client.
 const MAX_REQUESTS_PER_MINUTE: usize = 120;
@@ -272,9 +270,11 @@ async fn handle_http(
         .and_then(|v| v.to_str().ok());
     if !config.enabled || !is_authorized(req.uri().path(), authorization, &config.token) {
         super::record_rejected();
-        // Nothing to guess with a 256-bit token, but there's no reason to
-        // answer a scanner quickly either.
-        tokio::time::sleep(std::time::Duration::from_millis(REJECT_DELAY_MS)).await;
+        // Answered at once. A delay here would hold one of the few connection
+        // slots per junk request, and the public hostname is discoverable
+        // (certificate logs) — so a slow 404 would let anyone without the
+        // token crowd out the real assistant. There's nothing to brute-force
+        // in a 256-bit token anyway.
         return Ok(status_only(StatusCode::NOT_FOUND));
     }
     // Only meaningful after the token check: the probe id is a second secret,

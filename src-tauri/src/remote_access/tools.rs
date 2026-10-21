@@ -560,6 +560,44 @@ fn write(session_id: &str, bytes: &[u8]) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Is the bottom of the screen a choice the agent is waiting on? Returns the
+/// question (or the highlighted option) when it is.
+///
+/// Matches the shapes agent CLIs use for permission prompts and menus: a
+/// highlighted numbered option ("❯ 1. Yes"), "Do you want to …?", or a y/n
+/// prompt. Only the last lines are looked at — earlier screens with old
+/// prompts in the scrollback don't count.
+pub(crate) fn awaiting_choice(lines: &[String]) -> Option<String> {
+    let tail: Vec<&str> = lines
+        .iter()
+        .rev()
+        .take(14)
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect();
+    let highlighted = tail.iter().any(|l| {
+        let rest = l.trim_start_matches(['❯', '>', '›', '▶', '→']);
+        rest.len() < l.len() && {
+            let rest = rest.trim_start();
+            rest.chars().next().is_some_and(|c| c.is_ascii_digit())
+                && rest.chars().skip_while(char::is_ascii_digit).next() == Some('.')
+        }
+    });
+    let question = tail.iter().find(|l| {
+        let lower = l.to_lowercase();
+        lower.starts_with("do you want")
+            || lower.contains("(y/n)")
+            || lower.contains("[y/n]")
+            || lower.starts_with("allow ")
+            || lower.contains("would you like to proceed")
+    });
+    match (question, highlighted) {
+        (Some(q), _) => Some((*q).to_string()),
+        (None, true) => Some("choose an option".to_string()),
+        (None, false) => None,
+    }
+}
+
 /// Validate text bound for an agent, the same way for a message and a prompt.
 fn clean_agent_text(raw: &str, what: &str) -> Result<String, String> {
     let text = sanitize_message(raw);
@@ -636,6 +674,17 @@ async fn message_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> V
         Ok(t) => t,
         Err(e) => return error(e),
     };
+    // Typing ends with Enter. If the agent is showing a choice — a permission
+    // prompt, a menu — that Enter would pick the highlighted option ("Yes")
+    // on the user's behalf. Refuse and hand the question back instead.
+    if let Some(snap) = pty_session::session_snapshot(&tab.session_id) {
+        let screen = screen::render_tail(&snap.bytes, snap.rows, snap.cols, 20);
+        if let Some(question) = awaiting_choice(&screen) {
+            return error(format!(
+                "The agent in tab {n} is waiting for an answer right now: \"{question}\". Sending a message would answer it. Tell the user what it's asking (read_agent shows the options) and, once they decide, answer with press_key."
+            ));
+        }
+    }
     let was_busy = super::now_ms().saturating_sub(tab.last_output_ms) < QUIET_MS;
     if let Err(e) = type_into(&tab, n, &message).await {
         return error(e);
@@ -1065,34 +1114,133 @@ async fn git_status(project: &str) -> Value {
 /// Everything that decides what a push would contain: HEAD, and a hash of the
 /// working tree's changes (tracked diffs plus untracked files' names, sizes
 /// and modification times).
-async fn push_state(project: &str) -> Result<(String, String), String> {
-    use sha2::{Digest, Sha256};
+/// Run git with extra environment (used for a throwaway index).
+async fn git_env(project: &str, args: &[&str], envs: &[(&str, &str)]) -> Result<String, String> {
+    let path = crate::utils::validate_project_path(project).map_err(|e| e.to_string())?;
+    let mut cmd = crate::utils::git_command_in(&path).map_err(|e| e.to_string())?;
+    cmd.args(args);
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    let output =
+        crate::external_command::run_with_timeout(tokio::process::Command::from(cmd), "git", 60)
+            .await
+            .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// HEAD, and the exact git tree the working copy would commit as — staged
+/// into a throwaway index so the user's real index is untouched. The tree id
+/// is a hash of every byte that would be pushed (respecting .gitignore), so
+/// comparing it is comparing the content itself.
+async fn frozen_tree(project: &str) -> Result<(String, String), String> {
     let head = git(project, &["rev-parse", "HEAD"])
         .await?
         .trim()
         .to_string();
-    let status = git(
-        project,
-        &["status", "--porcelain=v1", "--untracked-files=all"],
-    )
-    .await?;
-    let diff = git(project, &["diff", "HEAD", "--no-ext-diff", "--binary"]).await?;
-    let untracked = git(project, &["ls-files", "--others", "--exclude-standard"]).await?;
-    let mut hasher = Sha256::new();
-    hasher.update(status.as_bytes());
-    hasher.update(diff.as_bytes());
-    for file in untracked.lines().filter(|l| !l.is_empty()) {
-        hasher.update(file.as_bytes());
-        if let Ok(meta) = std::fs::metadata(std::path::Path::new(project).join(file)) {
-            hasher.update(meta.len().to_le_bytes());
-            if let Ok(modified) = meta.modified() {
-                if let Ok(d) = modified.duration_since(std::time::UNIX_EPOCH) {
-                    hasher.update(d.as_nanos().to_le_bytes());
-                }
+    let index =
+        std::env::temp_dir().join(format!("shipstudio-remote-index-{}", super::new_token()));
+    let index_str = index.to_string_lossy().into_owned();
+    let env = [("GIT_INDEX_FILE", index_str.as_str())];
+    let result = async {
+        git_env(project, &["read-tree", "HEAD"], &env).await?;
+        git_env(project, &["add", "-A"], &env).await?;
+        Ok::<String, String>(
+            git_env(project, &["write-tree"], &env)
+                .await?
+                .trim()
+                .to_string(),
+        )
+    }
+    .await;
+    let _ = std::fs::remove_file(&index);
+    Ok((head, result?))
+}
+
+/// Push exactly `tree` on top of `head` to `branch`, and nothing else.
+///
+/// The PIN check and the push are separate moments; an agent still running
+/// in another tab can edit files or switch branches in between. So the commit
+/// is built from the tree that was checked (never from whatever is on disk by
+/// then) and pushed by explicit refspec to the branch the summary named
+/// (never to whatever is checked out). The local branch is then moved to the
+/// new commit only if it still points where it did.
+async fn push_frozen(
+    project: &str,
+    branch: &str,
+    head: &str,
+    tree: &str,
+) -> Result<String, String> {
+    let head_tree = git(project, &["rev-parse", &format!("{head}^{{tree}}")])
+        .await?
+        .trim()
+        .to_string();
+    let sha = if head_tree == tree {
+        head.to_string()
+    } else {
+        let path = crate::utils::validate_project_path(project).map_err(|e| e.to_string())?;
+        let _ = crate::commands::github::ensure_git_identity(&path);
+        git(
+            project,
+            &[
+                "commit-tree",
+                tree,
+                "-p",
+                head,
+                "-m",
+                "Update from Ship Studio remote access",
+            ],
+        )
+        .await?
+        .trim()
+        .to_string()
+    };
+
+    let path = crate::utils::validate_project_path(project).map_err(|e| e.to_string())?;
+    let refspec = format!("{sha}:refs/heads/{branch}");
+    let output = crate::commands::git::run_git_net(&["push", "origin", &refspec], &path, "push")
+        .await
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(e) = crate::commands::publishing::classify_push_failure(
+            &stderr,
+            branch,
+            output.status.code(),
+        ) {
+            return Err(e.to_string());
+        }
+    }
+
+    // Bring the local branch along, but only if nothing moved it meanwhile;
+    // then sync the index so the pushed changes don't show as uncommitted.
+    if sha != head {
+        let full_ref = format!("refs/heads/{branch}");
+        if git(project, &["update-ref", &full_ref, &sha, head])
+            .await
+            .is_ok()
+        {
+            let current = git(project, &["rev-parse", "--abbrev-ref", "HEAD"])
+                .await
+                .unwrap_or_default();
+            if current.trim() == branch {
+                let _ = git(project, &["reset", "-q"]).await;
             }
         }
     }
-    Ok((head, hex::encode(hasher.finalize())))
+    let _ = git(
+        project,
+        &[
+            "branch",
+            &format!("--set-upstream-to=origin/{branch}"),
+            branch,
+        ],
+    )
+    .await;
+    Ok(sha)
 }
 
 async fn prepare_push(project: &str) -> Value {
@@ -1108,7 +1256,7 @@ async fn prepare_push(project: &str) -> Value {
     if branch == "HEAD" {
         return error("The project isn't on a branch right now (detached HEAD), so there is nothing to push. This needs the user at the computer.");
     }
-    let (head, fingerprint) = match push_state(project).await {
+    let (head, fingerprint) = match frozen_tree(project).await {
         Ok(s) => s,
         Err(e) => return error(format!("git failed: {e}")),
     };
@@ -1135,6 +1283,7 @@ async fn prepare_push(project: &str) -> Value {
     }
     super::set_pending_push(super::PendingPush {
         project_path: project.to_string(),
+        branch: branch.clone(),
         head,
         tree_fingerprint: fingerprint,
         created_ms: super::now_ms(),
@@ -1152,11 +1301,13 @@ async fn prepare_push(project: &str) -> Value {
 
 async fn confirm_push(project: &str, args: &Value) -> Value {
     let pin = args.get("pin").and_then(Value::as_str).unwrap_or("");
-    let (head, fingerprint) = match push_state(project).await {
+    // The tree checked here is the tree pushed — see push_frozen.
+    let (head, tree) = match frozen_tree(project).await {
         Ok(s) => s,
         Err(e) => return error(format!("git failed: {e}")),
     };
-    match super::check_push(project, pin, &head, &fingerprint, super::now_ms()).await {
+    let (check, confirmed) = super::check_push(project, pin, &head, &tree, super::now_ms()).await;
+    match check {
         super::PushCheck::Ok => {}
         super::PushCheck::NoPin => return error("Pushing from remote access is off (no push PIN is set)."),
         super::PushCheck::Locked => return error("Remote pushing is now locked after too many wrong PINs. The user has to set a new PIN at the computer."),
@@ -1165,10 +1316,17 @@ async fn confirm_push(project: &str, args: &Value) -> Value {
         super::PushCheck::WrongPin { attempts_left } => return error(format!("That PIN is wrong. {attempts_left} attempt(s) left before remote pushing locks.")),
         super::PushCheck::Changed => return error("The project changed after the summary was shown, so it no longer describes what would be pushed. Call prepare_push again."),
     }
-    match crate::commands::publishing::publish_branch(project.to_string(), None).await {
-        Ok(result) => text(format!(
-            "Pushed. {}",
-            serde_json::to_string(&result).unwrap_or_default()
+    let Some(pending) = confirmed else {
+        return error(
+            "There's no push waiting for confirmation in this project. Call prepare_push first.",
+        );
+    };
+    match push_frozen(project, &pending.branch, &head, &tree).await {
+        Ok(sha) => text(format!(
+            "Pushed {} to origin/{} (commit {}). Exactly what was summarised — nothing changed after the PIN was checked.",
+            project_name(project),
+            pending.branch,
+            &sha[..sha.len().min(8)]
         )),
         Err(e) => error(format!("The push failed: {e}")),
     }
@@ -1272,6 +1430,37 @@ mod tests {
             "hi[201~ there\nnext\tline"
         );
         assert_eq!(sanitize_message("\r"), "");
+    }
+
+    #[test]
+    fn a_permission_prompt_on_screen_blocks_messages() {
+        let lines = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let claude = lines(&[
+            "⏺ Bash(rm -rf node_modules)",
+            "Do you want to proceed?",
+            "❯ 1. Yes",
+            "  2. Yes, and don't ask again for rm commands",
+            "  3. No, and tell Claude what to do differently (esc)",
+        ]);
+        assert_eq!(
+            awaiting_choice(&claude).as_deref(),
+            Some("Do you want to proceed?")
+        );
+        let menu = lines(&["Select model", "  1. Opus", "❯ 2. Sonnet"]);
+        assert!(awaiting_choice(&menu).is_some());
+        let yn = lines(&["Overwrite file? (y/n)"]);
+        assert!(awaiting_choice(&yn).is_some());
+        // The normal idle input box is not a choice.
+        let idle = lines(&[
+            "⏺ Done — the header is fixed.",
+            "─────",
+            "❯ ",
+            "─────",
+            "  ⏵⏵ auto mode on",
+        ]);
+        assert_eq!(awaiting_choice(&idle), None);
+        let typed = lines(&["❯ fix the footer next"]);
+        assert_eq!(awaiting_choice(&typed), None);
     }
 
     #[test]

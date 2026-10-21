@@ -78,6 +78,8 @@ arboard = "3"
 # Remote access renders an agent tab's screen as text for a phone to read
 # (src/remote_access/screen.rs).
 vt100 = "0.16"
+# Remote access tokens: 256 bits straight from the OS CSPRNG.
+getrandom = "0.2"
 tempfile = "3"
 
 [dev-dependencies]
