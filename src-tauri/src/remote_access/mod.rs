@@ -24,6 +24,7 @@
 pub mod power;
 pub mod screen;
 mod server;
+pub mod shots;
 pub mod tailscale;
 mod tools;
 
@@ -57,6 +58,10 @@ pub struct RemoteConfig {
     pub push_pin_salt: Option<String>,
     /// Wrong PINs in a row. At [`PUSH_MAX_FAILURES`] pushing locks.
     pub push_failures: u8,
+    /// Lid-closed mode was switched on from Remote access, so turning remote
+    /// access off should switch it back. Never set when the user had it on
+    /// already — we only undo what we did.
+    pub lid_mode_by_us: bool,
 }
 
 static CONFIG_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
@@ -543,6 +548,7 @@ pub async fn bring_up(app: tauri::AppHandle) -> Result<tailscale::FunnelOutcome,
 /// the server stops.
 pub async fn tear_down() {
     stop_publish_watch();
+    shots::clear();
     if tailscale::find_binary().is_some() {
         if let Err(e) = tailscale::disable_funnel().await {
             tracing::warn!("[Remote] Could not remove the Funnel: {}", e);

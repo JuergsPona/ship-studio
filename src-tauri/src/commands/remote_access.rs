@@ -263,6 +263,19 @@ pub async fn set_remote_access_enabled(
         if let Ok(mut l) = LAST_FUNNEL.lock() {
             *l = None;
         }
+        // Put the lid setting back if remote access is what changed it. This
+        // shows the macOS password prompt; if the user cancels, it stays on
+        // and the checklist keeps saying so.
+        if remote_access::read_config().lid_mode_by_us
+            && power::lid_closed_mode_active().await == Some(true)
+        {
+            match power::set_lid_closed_mode(false).await {
+                Ok(()) => {
+                    remote_access::update_config(|c| c.lid_mode_by_us = false)?;
+                }
+                Err(e) => tracing::warn!("[Remote] Lid-closed mode left on: {}", e),
+            }
+        }
     }
     Ok(build_status().await)
 }
@@ -308,6 +321,7 @@ pub async fn reset_remote_link() -> Result<RemoteAccessStatus, CommandError> {
         c.ever_connected = false;
     })?;
     remote_access::clear_pending_push();
+    remote_access::shots::clear();
     tailscale::forget_reachability();
     remote_access::audit(
         "new_link",
@@ -321,7 +335,11 @@ pub async fn reset_remote_link() -> Result<RemoteAccessStatus, CommandError> {
 #[tauri::command]
 #[tracing::instrument]
 pub async fn set_lid_closed_mode(enabled: bool) -> Result<RemoteAccessStatus, CommandError> {
+    let was_on = power::lid_closed_mode_active().await == Some(true);
     power::set_lid_closed_mode(enabled).await?;
+    // Remember only a change we made, so turning remote access off restores
+    // what the user had rather than overriding a setting they chose.
+    remote_access::update_config(|c| c.lid_mode_by_us = enabled && !was_on)?;
     Ok(build_status().await)
 }
 

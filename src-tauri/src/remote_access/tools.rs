@@ -11,7 +11,7 @@
 //! remote code execution with no agent in between, which is exactly the power
 //! the user chose not to hand out.
 
-use super::{power, screen, RemoteConfig};
+use super::{power, screen, shots, RemoteConfig};
 use crate::commands::pty_session::{self, SessionSummary};
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -116,13 +116,29 @@ const TOOLS: &[ToolDef] = &[
         }),
     },
     ToolDef {
-        name: "preview_screenshot",
-        description: "Screenshot the project's live preview in Ship Studio, as an image. Needs the project's preview to be running.",
+        name: "show_progress",
+        description: "THE way to report back. Waits (default 30s) for the agent to finish its current step, then returns its state, which files changed, and a sharp screenshot of the site with a link the user can open. Call it after each piece of work and whenever the user asks how it's going, then answer in a sentence or two plus the screenshot.",
         schema: || json!({
             "type": "object",
             "properties": {
                 "project": project_prop(),
-                "full_page": { "type": "boolean", "description": "Capture the whole page rather than the viewport." }
+                "tab": tab_prop(),
+                "wait_seconds": { "type": "integer", "description": "How long to wait for the agent to go quiet first (default 30, max 50)." },
+                "page": { "type": "string", "description": "Path to show, e.g. /pricing. Defaults to whatever the preview is on." },
+                "device": { "type": "string", "enum": ["desktop", "phone", "both"], "description": "Default desktop." }
+            }
+        }),
+    },
+    ToolDef {
+        name: "preview_screenshot",
+        description: "A high-definition screenshot of the project's live site (desktop at 2x, phone at 3x), returned as an image plus a link the user can open for 24 hours. Use page to show a specific route and device for phone or both.",
+        schema: || json!({
+            "type": "object",
+            "properties": {
+                "project": project_prop(),
+                "page": { "type": "string", "description": "Path to show, e.g. /pricing. Defaults to whatever the preview is on." },
+                "device": { "type": "string", "enum": ["desktop", "phone", "both"], "description": "Default desktop." },
+                "full_page": { "type": "boolean", "description": "Capture the whole page rather than the first screen." }
             }
         }),
     },
@@ -187,6 +203,7 @@ pub async fn call(app: &tauri::AppHandle, config: &RemoteConfig, name: &str, arg
         "press_key" => press_key(&project, &args),
         "start_agent" => start_agent(app, &project, &args).await,
         "preview_screenshot" => preview_screenshot(app, &project, &args).await,
+        "show_progress" => show_progress(app, &project, &args).await,
         "git_status" => git_status(&project).await,
         "prepare_push" => prepare_push(&project).await,
         "confirm_push" => confirm_push(&project, &args).await,
@@ -431,11 +448,31 @@ async fn read_agent(project: &str, args: &Value) -> Value {
         .unwrap_or(DEFAULT_LINES)
         .clamp(1, MAX_LINES);
 
+    match wait_and_read(&tab, wait, lines).await {
+        Ok((state, rendered)) => {
+            let kind = tab.agent_id.as_deref().unwrap_or("terminal");
+            text(format!(
+                "{} · tab {n} ({kind}) · {state}\n\n{}",
+                project_name(project),
+                rendered.join("\n")
+            ))
+        }
+        Err(e) => error(e),
+    }
+}
+
+/// Wait up to `wait` seconds for a tab to go quiet, then return a one-line
+/// state and its rendered screen.
+async fn wait_and_read(
+    tab: &SessionSummary,
+    wait: u64,
+    lines: usize,
+) -> Result<(String, Vec<String>), String> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(wait);
     let mut timed_out = false;
     loop {
         let Some(snap) = pty_session::session_snapshot(&tab.session_id) else {
-            return error("That tab was closed.");
+            return Err("That tab was closed.".into());
         };
         let quiet = super::now_ms().saturating_sub(snap.last_output_ms) >= QUIET_MS;
         if wait == 0 || quiet || !snap.alive || timed_out {
@@ -452,12 +489,7 @@ async fn read_agent(project: &str, args: &Value) -> Value {
             } else {
                 "working".to_string()
             };
-            let kind = tab.agent_id.as_deref().unwrap_or("terminal");
-            return text(format!(
-                "{} · tab {n} ({kind}) · {state}\n\n{}",
-                project_name(project),
-                rendered.join("\n")
-            ));
+            return Ok((state, rendered));
         }
         if tokio::time::Instant::now() >= deadline {
             timed_out = true;
@@ -678,11 +710,11 @@ async fn start_agent_with(
     project: &str,
     prompt: &str,
 ) -> Result<(usize, String), String> {
-    let before: Vec<String> = sessions_for(project)
-        .into_iter()
-        .map(|s| s.session_id)
-        .collect();
-    let payload = json!({ "projectPath": project, "prompt": prompt });
+    // We choose the new tab's id, so we wait for exactly that tab. Watching
+    // for "any new agent" picked up the project's default tab instead when
+    // opening the project created one first.
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let payload = json!({ "projectPath": project, "prompt": prompt, "sessionId": session_id });
     app.emit_to(&window_for(project), "remote-start-agent", payload)
         .map_err(|e| format!("Couldn't reach the Ship Studio window: {e}"))?;
 
@@ -693,7 +725,7 @@ async fn start_agent_with(
         if let Some((i, s)) = sessions
             .iter()
             .enumerate()
-            .find(|(_, s)| is_agent_tab(s) && !before.contains(&s.session_id))
+            .find(|(_, s)| s.session_id == session_id)
         {
             return Ok((i + 1, s.agent_id.clone().unwrap_or_else(|| "agent".into())));
         }
@@ -742,6 +774,11 @@ async fn close_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> Val
             "Tab {n} is a plain terminal, not an agent. Remote access only closes agent tabs."
         ));
     }
+    if sessions.len() <= 1 {
+        return error(format!(
+            "Tab {n} is the project's only tab, and Ship Studio always keeps one open. To start that conversation fresh, use message_agent with \"/clear\"."
+        ));
+    }
     let payload = json!({ "projectPath": project, "sessionId": tab.session_id });
     if let Err(e) = app.emit_to(&window_for(project), "remote-close-agent", payload) {
         return error(format!("Couldn't reach the Ship Studio window: {e}"));
@@ -764,21 +801,212 @@ async fn close_agent(app: &tauri::AppHandle, project: &str, args: &Value) -> Val
     ))
 }
 
+fn devices_from(arg: Option<&str>) -> Vec<shots::Device> {
+    match arg {
+        Some("phone") | Some("mobile") => vec![shots::Device::Phone],
+        Some("both") => vec![shots::Device::Desktop, shots::Device::Phone],
+        _ => vec![shots::Device::Desktop],
+    }
+}
+
+/// One captured screenshot, ready to hand to the assistant.
+struct Captured {
+    device: shots::Device,
+    jpeg: Vec<u8>,
+    link: Option<String>,
+}
+
+/// Capture the preview as `device` at high DPI, through the same preview the
+/// agent bridge drives, and store it behind its own image link.
+async fn capture(
+    app: &tauri::AppHandle,
+    project: &str,
+    device: shots::Device,
+    full_page: bool,
+) -> Result<Captured, String> {
+    let canonical = dunce::canonicalize(project)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| project.to_string());
+    let (width, height, scale) = device.viewport();
+    let result = crate::agent_bridge::call_preview_tool(
+        app.clone(),
+        &canonical,
+        "preview_screenshot",
+        json!({ "full_page": full_page, "width": width, "height": height, "scale": scale, "inline": false }),
+    )
+    .await;
+    if result.get("isError").and_then(Value::as_bool) == Some(true) {
+        return Err(result
+            .pointer("/content/0/text")
+            .and_then(Value::as_str)
+            .unwrap_or("The screenshot failed.")
+            .to_string());
+    }
+    let path = result
+        .pointer("/_meta/savedPath")
+        .and_then(Value::as_str)
+        .ok_or("The preview didn't say where it saved the screenshot.")?;
+    let path = std::path::PathBuf::from(path);
+    if !shots::is_capture_path(std::path::Path::new(&canonical), &path) {
+        return Err("The screenshot was saved somewhere unexpected, so it wasn't read.".into());
+    }
+    let encoded = tokio::task::spawn_blocking(move || shots::encode(&path))
+        .await
+        .map_err(|e| e.to_string())??;
+    let id = shots::store(encoded.full);
+    let jpeg = encoded.preview;
+    let link = match super::tailscale::status().await {
+        super::tailscale::TailscaleState::Connected { dns_name } => {
+            Some(shots::public_url(&dns_name, &id))
+        }
+        _ => None,
+    };
+    Ok(Captured { device, jpeg, link })
+}
+
+/// Image blocks plus one text line per capture naming its link.
+fn shots_content(captured: &[Captured]) -> (Vec<Value>, Vec<String>) {
+    use base64::Engine;
+    let mut blocks = Vec::new();
+    let mut lines = Vec::new();
+    for c in captured {
+        blocks.push(json!({
+            "type": "image",
+            "data": base64::engine::general_purpose::STANDARD.encode(&c.jpeg),
+            "mimeType": "image/jpeg",
+        }));
+        lines.push(match &c.link {
+            Some(link) => format!(
+                "{} screenshot (full resolution): {link}\nShow it to the user as ![{} screenshot]({link}) — not the attached copy, which is a small preview for you.",
+                c.device.label(),
+                c.device.label()
+            ),
+            None => format!("{} screenshot attached.", c.device.label()),
+        });
+    }
+    (blocks, lines)
+}
+
 async fn preview_screenshot(app: &tauri::AppHandle, project: &str, args: &Value) -> Value {
     let full_page = args
         .get("full_page")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    if let Some(page) = args.get("page").and_then(Value::as_str) {
+        if let Err(e) = navigate(app, project, page).await {
+            return error(e);
+        }
+    }
+    let mut captured = Vec::new();
+    for device in devices_from(args.get("device").and_then(Value::as_str)) {
+        match capture(app, project, device, full_page).await {
+            Ok(c) => captured.push(c),
+            Err(e) => return error(e),
+        }
+    }
+    let (mut content, lines) = shots_content(&captured);
+    content.push(json!({ "type": "text", "text": format!(
+        "{}\nThe link works for 24 hours and opens only this image.",
+        lines.join("\n")
+    )}));
+    json!({ "content": content })
+}
+
+/// Point the preview at a page before capturing it.
+async fn navigate(app: &tauri::AppHandle, project: &str, page: &str) -> Result<(), String> {
+    let page = page.trim();
+    if !page.starts_with('/') || page.starts_with("//") || page.chars().any(char::is_control) {
+        return Err("page must be a path within the site, like /pricing.".into());
+    }
     let canonical = dunce::canonicalize(project)
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| project.to_string());
-    crate::agent_bridge::call_preview_tool(
+    let result = crate::agent_bridge::call_preview_tool(
         app.clone(),
         &canonical,
-        "preview_screenshot",
-        json!({ "full_page": full_page }),
+        "preview_navigate",
+        json!({ "path": page }),
     )
-    .await
+    .await;
+    if result.get("isError").and_then(Value::as_bool) == Some(true) {
+        return Err(result
+            .pointer("/content/0/text")
+            .and_then(Value::as_str)
+            .unwrap_or("Couldn't open that page in the preview.")
+            .to_string());
+    }
+    // Let the page load and settle before it's photographed.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    Ok(())
+}
+
+/// The "here's where it's at" call: wait for the agent to finish its step,
+/// then return its state, what changed on disk, and a sharp screenshot — the
+/// pieces of a one-or-two-sentence update with a picture, which is what the
+/// person on the phone wants instead of terminal output.
+async fn show_progress(app: &tauri::AppHandle, project: &str, args: &Value) -> Value {
+    let wait = args
+        .get("wait_seconds")
+        .and_then(Value::as_u64)
+        .unwrap_or(30)
+        .min(MAX_WAIT_SECS);
+    let mut text_parts = Vec::new();
+
+    let sessions = sessions_for(project);
+    match pick_tab(&sessions, args.get("tab").and_then(Value::as_str)) {
+        Ok((n, tab)) => match wait_and_read(&tab, wait, 25).await {
+            Ok((state, rendered)) => text_parts.push(format!(
+                "Agent (tab {n}, {}): {state}.\nLast lines of its screen, for you to summarise — don't paste them:\n{}",
+                tab.agent_id.as_deref().unwrap_or("agent"),
+                rendered.join("\n")
+            )),
+            Err(e) => text_parts.push(format!("Agent: {e}")),
+        },
+        Err(e) => text_parts.push(format!("Agent: {e}")),
+    }
+
+    let changed = git(project, &["diff", "--stat", "HEAD"])
+        .await
+        .unwrap_or_default();
+    let untracked = git(project, &["ls-files", "--others", "--exclude-standard"])
+        .await
+        .unwrap_or_default();
+    let new_files = untracked.lines().filter(|l| !l.is_empty()).count();
+    text_parts.push(format!(
+        "Changed since the last commit:\n{}{}",
+        if changed.trim().is_empty() {
+            "(nothing tracked)".to_string()
+        } else {
+            cap_lines(&changed, 15)
+        },
+        if new_files > 0 {
+            format!("\n{new_files} new file(s)")
+        } else {
+            String::new()
+        }
+    ));
+
+    if let Some(page) = args.get("page").and_then(Value::as_str) {
+        if let Err(e) = navigate(app, project, page).await {
+            text_parts.push(format!("Couldn't open {page}: {e}"));
+        }
+    }
+    let mut content = Vec::new();
+    let mut captured = Vec::new();
+    for device in devices_from(args.get("device").and_then(Value::as_str)) {
+        match capture(app, project, device, false).await {
+            Ok(c) => captured.push(c),
+            Err(e) => text_parts.push(format!("No screenshot: {e}")),
+        }
+    }
+    let (blocks, lines) = shots_content(&captured);
+    content.extend(blocks);
+    text_parts.extend(lines);
+    text_parts.push(
+        "Now reply to the user in one or two plain sentences — what's done, what's next or what the agent is asking — with the screenshot. No code, diffs or terminal output unless they ask.".into(),
+    );
+    content.push(json!({ "type": "text", "text": text_parts.join("\n\n") }));
+    json!({ "content": content })
 }
 
 // ============================================================================

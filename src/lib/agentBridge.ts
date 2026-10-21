@@ -48,6 +48,8 @@ type McpContent =
 export interface McpToolResult {
   content: McpContent[];
   isError?: boolean;
+  /** MCP's slot for machine-readable extras; agents ignore it. */
+  _meta?: Record<string, unknown>;
 }
 
 export type ViewportPreset = 'mobile' | 'tablet' | 'laptop' | 'desktop' | 'full';
@@ -438,9 +440,23 @@ export function isValidPreviewPath(path: unknown): path is string {
   );
 }
 
+/**
+ * Capture options beyond the agent-facing tool's own. Remote access asks for
+ * a device size and pixel ratio (sharp images for a phone), and for the file
+ * path instead of inline bytes: it re-encodes the image itself, and a large
+ * high-DPI PNG would blow the inline limit.
+ */
+interface CaptureOptions {
+  width?: number;
+  height?: number;
+  scale?: number;
+  inline?: boolean;
+}
+
 async function captureScreenshot(
   ctx: BridgeToolContext,
-  fullPage: boolean
+  fullPage: boolean,
+  opts: CaptureOptions = {}
 ): Promise<McpToolResult> {
   const url = ctx.getCurrentUrl();
   if (!url) {
@@ -461,9 +477,18 @@ async function captureScreenshot(
     projectPath: ctx.projectPath,
     url,
     // Capture at the preview's current viewport so responsive checks
-    // (preview_set_viewport → preview_screenshot) show the real layout.
-    width: ctx.getViewportWidth() ?? undefined,
+    // (preview_set_viewport → preview_screenshot) show the real layout,
+    // unless the caller named a device size.
+    width: opts.width ?? ctx.getViewportWidth() ?? undefined,
+    height: opts.height,
+    scale: opts.scale,
   });
+  if (opts.inline === false) {
+    return {
+      content: [{ type: 'text', text: `Screenshot of ${url} saved to ${path}.` }],
+      _meta: { savedPath: path, url },
+    };
+  }
   const dataUrl = await invoke<string>('get_screenshot_base64', { filePath: path });
   const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
   if (base64.length > MAX_INLINE_IMAGE_BASE64_CHARS) {
@@ -553,7 +578,13 @@ export async function executeBridgeTool(
         return text('Preview reloaded.');
       }
       case 'preview_screenshot': {
-        return await captureScreenshot(ctx, args.full_page === true);
+        const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+        return await captureScreenshot(ctx, args.full_page === true, {
+          width: num(args.width),
+          height: num(args.height),
+          scale: num(args.scale),
+          inline: args.inline !== false,
+        });
       }
       case 'preview_set_viewport': {
         // Read before the call: setting a viewport closes the canvas, and the

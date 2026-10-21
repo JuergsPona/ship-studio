@@ -1,7 +1,8 @@
 # Remote access
 
-Keep your agents going from your phone. Grok Bot (or any assistant that accepts
-a remote MCP server) drives the Ship Studio running on your own Mac. It reads
+Keep your agents going from your phone. Any AI assistant that can add a custom
+MCP connector (Grok, Claude, ChatGPT, Cursor, …) drives the Ship Studio
+running on your own Mac — it's a standard MCP server, nothing assistant-specific. It reads
 what an agent tab is showing, answers it, starts new agents, screenshots the
 preview, and can push behind a PIN only you know. When you sit back down, the
 conversation is in the same tab you left.
@@ -34,7 +35,7 @@ this first, before any setup, and makes it as unlikely as possible.
 | Way it stops | What we do | What we can't do |
 | --- | --- | --- |
 | Idle sleep | `caffeinate -i -s -m -w <our pid>` while remote access is on. No privileges, and it's released if we crash (verified). | `-s` only holds on mains power. |
-| Lid closed (laptops) | Opt-in **lid-closed mode**: `pmset -a disablesleep 1` behind the admin password prompt. Read back from `pmset -g` every time, never remembered. | It outlives the app, so the modal shows it until it's turned off. The copy warns about bags and heat. |
+| Lid closed (laptops) | **Lid-closed mode**: `pmset -a disablesleep 1` behind the admin password prompt. `caffeinate` cannot do this — macOS sleeps on lid close regardless. Offered ticked-by-default beside **Turn on remote access** on laptops, with the cost spelled out (plug in, uses battery, not in a bag). Read back from `pmset -g` every time. When Remote access turned it on (`lid_mode_by_us`), turning remote access off switches it back — a second password prompt; macOS allows no other way without a privileged helper. | It outlives the app if the app quits while it's on; the checklist keeps showing it. |
 | Battery | The checklist shows "On battery (64%)", and the sidebar indicator turns amber. `computer_status` warns the assistant, loudly below 20%. | Charge it. |
 | Restart | **Reopen after a restart**: a LaunchAgent (`studio.ship.reopen-at-login`) runs `open -g` on the bundle at login, and remote access resumes on launch if it was on. | With FileVault, someone still has to log in once. The copy says so. |
 | Quitting | The quit confirmation says remote access is on and what quitting does. | — |
@@ -87,7 +88,9 @@ counted and shown as "N refused". The server binds loopback only and is
 reachable solely through our Funnel mount. "Turn off" is checked on every
 request, so it locks out at once even if the Funnel lingers.
 
-**The link leaks.** The token never enters the webview. Plugins run JavaScript
+**The link leaks.** The UI says so where the link is: "This link is a key to this
+computer — paste it only into your own assistant's connector settings, never
+into a chat, email, screenshot, shared doc or issue." The token never enters the webview. Plugins run JavaScript
 there, so the UI gets a masked link, and **Copy link** writes the real one from
 Rust. It's marked to be excluded from clipboard history (nspasteboard.org
 convention) and cleared after 90 s if it's still on the clipboard. **Replace
@@ -193,9 +196,31 @@ Grok Bot ──HTTPS──▶ Tailscale ──▶ tailscaled Funnel (/shipstudio
 
 ## Tools
 
-`computer_status`, `list_projects`, `read_agent`, `send_to_agent`, `press_key`,
-`start_agent`, `preview_screenshot`, `git_status`, `prepare_push`,
-`confirm_push`. Definitions are in `src-tauri/src/remote_access/tools.rs`; the
+`computer_status`, `list_projects`, `message_agent`, `read_agent`, `press_key`,
+`start_agent`, `close_agent`, `show_progress`, `preview_screenshot`,
+`git_status`, `prepare_push`, `confirm_push`.
+
+- **`message_agent` is the default.** A real session started a fresh agent for
+  most requests when the tools were "send" and "start" — once because the
+  first agent was busy, once re-sending a prompt the new agent already had.
+  `message_agent` continues the running conversation (delivering to a busy
+  agent too) and only starts one when none is running; `start_agent` is for an
+  explicitly separate agent and says the new one already has its prompt. The
+  backend chooses the new tab's session id and waits for exactly that tab —
+  watching for "any new agent" once picked up a project's default tab.
+- **`close_agent`** is the tab's ×, through the owning window
+  (`useRemoteAgentControl` → `closeTerminalTab`); never the last tab.
+- **Reporting is pictures, not code.** `show_progress` waits for the agent to
+  finish its step and returns its state, what changed, and a screenshot; the
+  instructions tell the assistant to answer in a sentence or two with it, and
+  never to paste code or terminal output unless asked. Screenshots are taken
+  at 2× desktop (2560×1600) or 3× phone (1170×2532) through the preview's own
+  Playwright capture and re-encoded as JPEG.
+- **Screenshot links.** Each image is also served at
+  `…/shipstudio/shot/<id>.jpg` so the assistant can show it in chat. The id is
+  a fresh 256-bit random value per image — the link opens that one picture and
+  never contains the connector token. In memory only, 40 newest, 24 hours, and
+  all of them cleared when the link is replaced or remote access is turned off. Definitions are in `src-tauri/src/remote_access/tools.rs`; the
 assistant's guidance is `INSTRUCTIONS` in `server.rs`.
 
 ## What's verified, and what isn't

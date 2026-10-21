@@ -1,5 +1,5 @@
 /**
- * Remote access — control Ship Studio from Grok Bot (or any MCP client) on
+ * Remote access — control Ship Studio from any MCP-capable AI assistant on
  * your phone while your Mac keeps doing the work.
  *
  * TypeScript mirror of `src-tauri/src/commands/remote_access.rs`, the invoke
@@ -11,7 +11,7 @@
  * - The computer must be on for any of this to work, and the user learns that
  *   first, while still sitting at it — not from their phone when nothing
  *   answers.
- * - Setup is finished when Grok Bot has actually connected, not when a link
+ * - Setup is finished when an assistant has actually connected, not when a link
  *   exists. A link nobody has used proves nothing.
  *
  * The link's secret never reaches this code: the backend returns a masked
@@ -193,7 +193,8 @@ export function readinessItems(s: ReadinessInput): ReadinessItem[] {
             id: 'lid',
             state: 'ok',
             title: 'Runs with the lid closed',
-            detail: 'Don’t put it in a bag while this is on — it can overheat.',
+            detail:
+              'Keep it plugged in — it keeps working and using battery with the lid shut. Don’t put it in a bag.',
           }
         : {
             id: 'lid',
@@ -333,9 +334,9 @@ export interface SetupStep {
 const STEP_TITLES: Record<SetupStepId, string> = {
   stayOn: 'This computer has to stay on',
   connect: 'Give this computer a private link',
-  projects: 'Choose what Grok Bot can reach',
+  projects: 'Choose what your assistant can reach',
   pushing: 'Pushing from your phone',
-  assistant: 'Connect Grok Bot',
+  assistant: 'Connect your AI assistant',
 };
 
 function stepDone(id: SetupStepId, s: RemoteAccessStatus, c: SetupChoices): boolean {

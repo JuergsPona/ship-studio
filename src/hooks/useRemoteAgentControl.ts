@@ -32,7 +32,14 @@ import type { Project } from '../lib/project';
 const GIVE_UP_MS = 60_000;
 
 export type RemoteRequest =
-  | { kind: 'start'; projectPath: string; prompt: string; receivedAt: number }
+  | {
+      kind: 'start';
+      projectPath: string;
+      prompt: string;
+      /** Chosen by the backend so it can wait for exactly this tab. */
+      sessionId: string;
+      receivedAt: number;
+    }
   | { kind: 'close'; projectPath: string; sessionId: string; receivedAt: number };
 
 interface TabRef {
@@ -51,7 +58,7 @@ interface WorkspaceState {
 interface Params extends WorkspaceState {
   addTerminalTab: (
     agentId?: string,
-    options?: { initialPrompt?: string; projectPath?: string }
+    options?: { initialPrompt?: string; projectPath?: string; sessionId?: string }
   ) => void;
   closeTerminalTab: (tabId: number) => void;
   openProject: (project: Project) => void | Promise<void>;
@@ -104,12 +111,12 @@ export function useRemoteAgentControl({
   const [pending, setPending] = useState<RemoteRequest | null>(null);
 
   useEffect(() => {
-    const unlistenStart = listen<{ projectPath: string; prompt: string }>(
+    const unlistenStart = listen<{ projectPath: string; prompt: string; sessionId: string }>(
       'remote-start-agent',
       (event) => {
-        const { projectPath, prompt } = event.payload;
+        const { projectPath, prompt, sessionId } = event.payload;
         logger.info('[Remote] Asked to start an agent', { projectPath });
-        setPending({ kind: 'start', projectPath, prompt, receivedAt: Date.now() });
+        setPending({ kind: 'start', projectPath, prompt, sessionId, receivedAt: Date.now() });
       }
     );
     const unlistenClose = listen<{ projectPath: string; sessionId: string }>(
@@ -156,6 +163,7 @@ export function useRemoteAgentControl({
       addTerminalTab(undefined, {
         initialPrompt: pending.prompt,
         projectPath: pending.projectPath,
+        sessionId: pending.sessionId,
       });
       setPending(null);
     } else if (step.do === 'close') {

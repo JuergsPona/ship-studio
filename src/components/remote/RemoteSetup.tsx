@@ -7,7 +7,7 @@
  *    confirms it, not when we asked.
  * 3. **Projects** — nothing is reachable until it's ticked.
  * 4. **Pushing** — off unless the user sets a PIN; skipping is a real choice.
- * 5. **Connect Grok Bot** — done when Grok Bot has actually connected.
+ * 5. **Connect your assistant** — done when an assistant has actually connected.
  *
  * Done steps collapse to a one-line summary and can be reopened. Upcoming
  * steps show their title only, so the whole path is visible from the start.
@@ -57,8 +57,8 @@ export function RemoteSetup({ ctl, choices, setChoice, projects, onProjectChange
     stayOn: (
       <>
         <p className="remote-lede">
-          Grok Bot doesn’t run your agents — this computer does. If it sleeps, shuts down, loses
-          Wi-Fi, or Ship Studio quits, Grok Bot can’t reach it, and{' '}
+          Your assistant doesn’t run your agents — this computer does. If it sleeps, shuts down,
+          loses Wi-Fi, or Ship Studio quits, your assistant can’t reach it, and{' '}
           <strong>nothing can wake it up from your phone</strong>.
         </p>
         <ReadinessList ctl={ctl} />
@@ -79,7 +79,7 @@ export function RemoteSetup({ ctl, choices, setChoice, projects, onProjectChange
     projects: (
       <>
         <p className="remote-note">
-          Grok Bot only sees the projects you tick. You can change this any time.
+          Your assistant only sees the projects you tick. You can change this any time.
         </p>
         <ProjectPicker status={status} projects={projects} onChange={onProjectChange} />
         <div className="remote-actions">
@@ -99,9 +99,9 @@ export function RemoteSetup({ ctl, choices, setChoice, projects, onProjectChange
     pushing: (
       <>
         <p className="remote-note">
-          To push from your phone, set a PIN here. Grok Bot never sees it: when you want to push, it
-          shows you what would go out and you type the PIN yourself. Five wrong tries lock pushing
-          until you’re back.
+          To push from your phone, set a PIN here. Your assistant never sees it: when you want to
+          push, it shows you what would go out and you type the PIN yourself. Five wrong tries lock
+          pushing until you’re back.
         </p>
         <PinForm ctl={ctl} submitLabel="Allow pushing" onDone={() => setReopened(null)} />
         <div className="remote-actions">
@@ -122,14 +122,18 @@ export function RemoteSetup({ ctl, choices, setChoice, projects, onProjectChange
         <ConnectionPanel ctl={ctl} />
         <ol className="remote-steps-mini">
           <li>Copy the link.</li>
-          <li>In Grok Bot, add a custom connector (an MCP server) and paste it.</li>
           <li>
-            Ask Grok Bot: <em>“What are my Ship Studio agents doing?”</em>
+            In your AI assistant, add a custom MCP connector, name it <strong>Ship Studio</strong>,
+            and paste the link. Grok, Claude, ChatGPT and Cursor all have one — anything that speaks
+            MCP works.
+          </li>
+          <li>
+            Ask it: <em>“What are my Ship Studio agents doing?”</em>
           </li>
         </ol>
         {status.reachability?.state === 'reachable' && (
           <div className="remote-waiting">
-            <Spinner size="sm" /> Waiting for Grok Bot to connect…
+            <Spinner size="sm" /> Waiting for your assistant to connect…
           </div>
         )}
       </>

@@ -5,6 +5,7 @@ const start: RemoteRequest = {
   kind: 'start',
   projectPath: '/p',
   prompt: 'fix the header',
+  sessionId: 'new',
   receivedAt: 1_000,
 };
 const close: RemoteRequest = {

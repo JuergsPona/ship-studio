@@ -85,7 +85,8 @@ export function ReadinessList({ ctl }: { ctl: RemoteCtl }) {
                 <span className="remote-toggle__text">
                   Keep running with the lid closed
                   <span className="remote-toggle__hint">
-                    Asks for your Mac password. Stays on until you turn it off here.
+                    Asks for your Mac password. Keep it plugged in. Switched back when you turn
+                    remote access off.
                   </span>
                 </span>
               </label>
@@ -121,7 +122,15 @@ export function ReadinessList({ ctl }: { ctl: RemoteCtl }) {
 export function ConnectionPanel({ ctl }: { ctl: RemoteCtl }) {
   const { status, busy, act } = ctl;
   const step = connectionStep(status, ctl.now);
-  const turnOn = () => void act('enable', () => setRemoteAccessEnabled(true));
+  // On a laptop, offered alongside Turn on and ticked by default: closing the
+  // lid is the most common way remote access silently stops.
+  const offerLid = status.power.hasBattery && status.lidClosedMode === false;
+  const [withLid, setWithLid] = useState(true);
+  const turnOn = () =>
+    void act('enable', async () => {
+      const next = await setRemoteAccessEnabled(true);
+      return offerLid && withLid ? setLidClosedMode(true) : next;
+    });
   const recheck = () => void act('check', getRemoteAccessStatus);
 
   switch (step.kind) {
@@ -132,7 +141,7 @@ export function ConnectionPanel({ ctl }: { ctl: RemoteCtl }) {
         <>
           <p className="remote-note">
             Tailscale (free) gives this computer a private web address on <em>your</em> account.
-            Grok Bot talks to it directly — nothing passes through Ship Studio’s servers.
+            Your assistant talks to it directly — nothing passes through Ship Studio’s servers.
           </p>
           <div className="remote-actions">
             <Button
@@ -178,6 +187,24 @@ export function ConnectionPanel({ ctl }: { ctl: RemoteCtl }) {
           <p className="remote-note">
             Turning this on keeps the computer awake and gives it a link only you have.
           </p>
+          {offerLid && (
+            <label className="remote-toggle">
+              <Checkbox
+                checked={withLid}
+                disabled={busy !== null}
+                label="Keep running with the lid closed"
+                onChange={setWithLid}
+              />
+              <span className="remote-toggle__text">
+                Keep running with the lid closed
+                <span className="remote-toggle__hint">
+                  Asks for your Mac password. Keep it plugged in — with the lid shut it keeps
+                  working and uses battery, and shouldn’t go in a bag. Switched back when you turn
+                  remote access off.
+                </span>
+              </span>
+            </label>
+          )}
           <div className="remote-actions">
             <Button variant="primary" {...busyProps(busy, 'enable')} onClick={turnOn}>
               Turn on remote access
@@ -226,7 +253,7 @@ export function ConnectionPanel({ ctl }: { ctl: RemoteCtl }) {
     case 'publishing': {
       const elapsed = step.minutes > 0 ? ` (${step.minutes} min so far)` : '';
       const message = {
-        waiting: `Tailscale is making this address public — usually a minute or two${elapsed}. You can add the link to Grok Bot now; it starts working once this turns green.`,
+        waiting: `Tailscale is making this address public — usually a minute or two${elapsed}. You can add the link to your assistant now; it starts working once this turns green.`,
         retried: `That took longer than usual, so Ship Studio asked Tailscale again${elapsed}. It normally goes through within a couple of minutes of asking.`,
         stuck: `Tailscale still hasn’t made this address public${elapsed}. Ask again below — if that doesn’t do it, the hold-up is on Tailscale’s side.`,
       }[step.stage];
@@ -316,7 +343,10 @@ export function LinkRow({ ctl, allowReset = false }: { ctl: RemoteCtl; allowRese
       await copyRemoteLink();
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
-      showToast('Link copied. It clears from your clipboard in 90 seconds.', 'success');
+      showToast(
+        'Link copied — paste it into your assistant’s connector settings only. It clears from your clipboard in 90 seconds.',
+        'success'
+      );
     } catch (err) {
       showToast(errMsg(err), 'error');
     }
@@ -337,13 +367,21 @@ export function LinkRow({ ctl, allowReset = false }: { ctl: RemoteCtl; allowRese
           {copied ? 'Copied' : 'Copy link'}
         </Button>
       </div>
-      <p className="remote-hint">
-        Treat this link like a password: anyone who has it can drive the projects you share.
-      </p>
+      <div className="remote-keynote" role="note">
+        <WarningIcon size={16} />
+        <span>
+          <strong>This link is a key to this computer.</strong> Paste it only into your own AI
+          assistant’s connector settings — never into a chat message, email, screenshot, shared doc
+          or issue. If it might have leaked, replace it
+          {allowReset ? ' below' : ' from Remote access'}.
+        </span>
+      </div>
       {allowReset &&
         (confirmReset ? (
           <div className="remote-confirm">
-            <span>The old link stops working at once, and you’ll add the new one to Grok Bot.</span>
+            <span>
+              The old link stops working at once, and you’ll add the new one to your assistant.
+            </span>
             <Button variant="ghost" size="compact" onClick={() => setConfirmReset(false)}>
               Cancel
             </Button>
@@ -510,7 +548,7 @@ export function PushPanel({ ctl }: { ctl: RemoteCtl }) {
     case 'notSet':
       return (
         <div className="remote-row">
-          <p className="remote-note">Off. Grok Bot can’t push anything from your phone.</p>
+          <p className="remote-note">Off. Your assistant can’t push anything.</p>
           <Button variant="secondary" size="compact" onClick={() => setEditing(true)}>
             Allow with a PIN…
           </Button>
@@ -570,7 +608,9 @@ export function PushPanel({ ctl }: { ctl: RemoteCtl }) {
 
 export function ActivityList({ entries, now }: { entries: AuditEntry[]; now: number }) {
   if (entries.length === 0) {
-    return <p className="remote-note">Nothing yet. Everything Grok Bot does shows up here.</p>;
+    return (
+      <p className="remote-note">Nothing yet. Everything your assistant does shows up here.</p>
+    );
   }
   return (
     <ul className="remote-activity">

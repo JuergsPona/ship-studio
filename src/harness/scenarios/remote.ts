@@ -169,15 +169,15 @@ export const remoteScenarios: Scenario[] = [
   remote(
     'remote-setup-4-pushing',
     'Remote access setup — step 4, pushing is opt-in with a PIN',
-    'Explains that Grok Bot never sees the PIN, two masked PIN fields, "Allow pushing", and a ' +
+    'Explains that the assistant never sees the PIN, two masked PIN fields, "Allow pushing", and a ' +
       'clear "Skip — I’ll push from the computer".',
     { ...ON, projects: [PROJECTS[0]] },
     choices({ understood: true, projectsConfirmed: true })
   ),
   remote(
     'remote-setup-5-connect',
-    'Remote access setup — step 5, waiting for Grok Bot',
-    'The masked link with Copy link, three short instructions, and "Waiting for Grok Bot to ' +
+    'Remote access setup — step 5, waiting for an assistant to connect',
+    'The masked link with Copy link, three short instructions naming several assistants, and "Waiting for your assistant to ' +
       'connect…". Every earlier step is checked off with a summary.',
     { ...ON, projects: [PROJECTS[0]], pushPin: 'set' },
     choices({ understood: true, projectsConfirmed: true })
@@ -186,7 +186,7 @@ export const remoteScenarios: Scenario[] = [
     'remote-setup-5-publishing',
     'Remote access setup — step 5, Funnel on but public DNS not published yet',
     'The link is shown and copyable, with a spinner explaining Tailscale is still publishing ' +
-      'the address (up to ten minutes the first time). No "Waiting for Grok Bot" and nothing ' +
+      'the address (up to ten minutes the first time). No "Waiting for your assistant" and nothing ' +
       'green — the internet can’t reach it yet. This is the state a real first run hit.',
     { ...ON, projects: [PROJECTS[0]], pushPin: 'set', reachability: { state: 'noPublicDns' } },
     choices({ understood: true, projectsConfirmed: true })
@@ -208,7 +208,7 @@ export const remoteScenarios: Scenario[] = [
   ),
   remote(
     'remote-live',
-    'Remote access — live, Grok Bot connected',
+    'Remote access — live, an assistant connected',
     'Green "Live" hero naming the client and the machine, with Turn off. "Before you leave" ' +
       'shows one warning (lid). Projects, pushing (on, with PIN), the masked link with Replace ' +
       'link…, and recent activity reading as sentences, with the refused push in amber.',

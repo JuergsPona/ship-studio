@@ -33,8 +33,8 @@ export function QuitConfirmModal({ onCancel, onQuit }: QuitConfirmModalProps) {
         <p>Are you sure you want to quit Ship Studio?</p>
         {remoteOn && (
           <p className="quit-confirm-remote">
-            Remote access is on. Quitting stops Grok Bot reaching this computer until Ship Studio is
-            open again.
+            Remote access is on. Quitting stops your assistant reaching this computer until Ship
+            Studio is open again.
           </p>
         )}
         <div className="quit-confirm-actions">

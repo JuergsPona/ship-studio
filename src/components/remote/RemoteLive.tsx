@@ -53,12 +53,12 @@ export function RemoteLive({ ctl, projects, onProjectChange, activity }: Props) 
   const headline = { live: 'Live', down: 'Not reachable', off: 'Off' }[state];
   const subline =
     state === 'live'
-      ? (lastRequest ?? 'Waiting for Grok Bot’s next message')
+      ? (lastRequest ?? 'Waiting for your assistant’s next message')
       : state === 'down'
         ? status.reachability?.state === 'noPublicDns'
           ? 'Tailscale is still publishing this computer’s address.'
           : 'Remote access is on, but the internet can’t reach this computer right now.'
-        : 'Grok Bot can’t reach this computer.';
+        : 'Your assistant can’t reach this computer.';
 
   return (
     <div className="remote-live">
@@ -108,7 +108,7 @@ export function RemoteLive({ ctl, projects, onProjectChange, activity }: Props) 
       </section>
 
       <section className="remote-section">
-        <h3 className="remote-heading">Projects Grok Bot can reach</h3>
+        <h3 className="remote-heading">Projects your assistant can reach</h3>
         <ProjectPicker status={status} projects={projects} onChange={onProjectChange} />
       </section>
 

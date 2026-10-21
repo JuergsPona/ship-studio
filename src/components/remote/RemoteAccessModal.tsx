@@ -1,7 +1,7 @@
 /**
  * RemoteAccessModal — set up, then watch, remote access.
  *
- * Until Grok Bot has actually connected it is a guided setup
+ * Until an assistant has actually connected it is a guided setup
  * (`RemoteSetup`); after that it is a live view (`RemoteLive`). Which one is
  * decided by what's true — a link nobody has used isn't "set up".
  *
@@ -155,7 +155,8 @@ export function RemoteAccessModal({ isOpen, onClose }: RemoteAccessModalProps) {
         ) : (
           <>
             <p className="remote-intro">
-              Keep your agents going from your phone. Grok Bot drives Ship Studio on this computer —
+              Keep your agents going from your phone, with any AI assistant that supports MCP
+              connectors — Grok, Claude, ChatGPT and more. It drives Ship Studio on this computer —
               the same tabs, the same conversations — so everything is waiting when you’re back.
             </p>
             <RemoteOnBar ctl={ctl} />
