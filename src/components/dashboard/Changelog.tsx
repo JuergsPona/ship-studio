@@ -26,6 +26,12 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.6.1', // v1.6.1
+    items: [
+      'Fixed: remote access could say “Not reachable” and never finish setting up when Tailscale was installed from its website or the App Store',
+    ],
+  },
+  {
     version: '1.6.0', // v1.6.0
     items: [
       'New: Remote access — keep your agents going from your phone. Connect any AI assistant that supports MCP connectors (Grok, Claude, ChatGPT, Cursor…) and it can continue the conversations already running in your agent tabs, start or close agents, and send back sharp screenshots of what you’re building. It all happens on this computer, in the same tabs, so it’s waiting for you when you’re back. Cmd+K → Remote access, or the new item at the foot of the sidebar',
