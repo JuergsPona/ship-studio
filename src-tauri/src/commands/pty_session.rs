@@ -1132,6 +1132,9 @@ mod tests {
                 child_killer: Mutex::new(child.clone_killer()),
                 master: Mutex::new(Some(pair.master)),
                 flow: FlowControl::new(),
+                meta: SessionMeta::default(),
+                size: Mutex::new((24, 80)),
+                last_output_ms: std::sync::atomic::AtomicU64::new(0),
             });
             REGISTRY
                 .lock()

@@ -55,13 +55,15 @@ interface WorkspaceState {
   maxTerminalTabs: number;
 }
 
-interface Params extends WorkspaceState {
+/** The slice of the workspace's terminal bundle this needs. */
+interface TerminalControls {
+  terminalTabs: readonly TabRef[];
+  maxTerminalTabs: number;
   addTerminalTab: (
     agentId?: string,
     options?: { initialPrompt?: string; projectPath?: string; sessionId?: string }
   ) => void;
   closeTerminalTab: (tabId: number) => void;
-  openProject: (project: Project) => void | Promise<void>;
 }
 
 export type RemoteStep =
@@ -99,15 +101,12 @@ export function remoteStep(
   return { do: 'close', tabId: tab.id };
 }
 
-export function useRemoteAgentControl({
-  currentProjectPath,
-  inWorkspace,
-  terminalTabs,
-  maxTerminalTabs,
-  addTerminalTab,
-  closeTerminalTab,
-  openProject,
-}: Params): void {
+export function useRemoteAgentControl(
+  currentProjectPath: string | null,
+  inWorkspace: boolean,
+  { terminalTabs, maxTerminalTabs, addTerminalTab, closeTerminalTab }: TerminalControls,
+  openProject: (project: Project) => void | Promise<void>
+): void {
   // A queue, not a slot: two requests can arrive while a project is still
   // opening, and the second must not silently replace the first (the backend
   // would then wait a full minute for a tab that was never asked for).
