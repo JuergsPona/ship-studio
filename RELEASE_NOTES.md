@@ -6,6 +6,11 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v1.6.1
+
+- **Fixed remote access with the Tailscale app** - Remote access could show "Not reachable" and never finish setting up when Tailscale was installed from its website or the App Store
+
+
 ## What's New in v1.6.0
 
 - **Remote access** - Keep your agents going from your phone with any AI assistant that supports MCP connectors (Grok, Claude, ChatGPT, Cursor). It continues the conversations already in your agent tabs, starts and closes agents, and sends back sharp screenshots — all on your own computer, over your own Tailscale. Only the projects you choose are reachable, there's no raw shell, pushing needs a PIN your assistant never sees, and every action is logged
