@@ -26,6 +26,13 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.6.2', // v1.6.2
+    items: [
+      'Remote access can now create a new project for you — ask your assistant for “a new Next.js project called bakery” and it’s made, shared for remote access and opened, ready for an agent to build in',
+      'Remote access can switch between your shared projects, and screenshots of a project that isn’t showing now open it and wait for its preview instead of asking you to switch over',
+    ],
+  },
+  {
     version: '1.6.1', // v1.6.1
     items: [
       'Fixed: remote access could say “Not reachable” and never finish setting up when Tailscale was installed from its website or the App Store',
