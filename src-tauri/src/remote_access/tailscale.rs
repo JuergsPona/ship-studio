@@ -57,9 +57,20 @@ pub enum TailscaleState {
     Unknown { detail: String },
 }
 
+/// A command for the CLI at `bin`. The standalone Tailscale.app binary is
+/// both the GUI and the CLI, and decides which from the environment: from a
+/// terminal it's the CLI, but spawned by a GUI app (Ship Studio installed, not
+/// `tauri dev`) it tries to start a second GUI, prints "The Tailscale GUI
+/// failed to start" and exits zero. `TAILSCALE_BE_CLI` forces the CLI.
+fn cli_command(bin: std::path::PathBuf) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new(bin);
+    cmd.env("TAILSCALE_BE_CLI", "1");
+    cmd
+}
+
 async fn run_cli(args: &[&str], timeout_secs: u64) -> Result<std::process::Output, CommandError> {
     let bin = find_binary().ok_or_else(|| CommandError::expected("Tailscale isn't installed."))?;
-    let mut cmd = tokio::process::Command::new(bin);
+    let mut cmd = cli_command(bin);
     cmd.args(args);
     crate::external_command::run_with_timeout(cmd, "tailscale", timeout_secs).await
 }
@@ -110,8 +121,18 @@ pub async fn status() -> TailscaleState {
             {
                 TailscaleState::NeedsLogin
             } else {
+                // Never an empty reason: some failures only print to stdout.
+                let said = if stderr.trim().is_empty() {
+                    String::from_utf8_lossy(&output.stdout).trim().to_string()
+                } else {
+                    stderr.trim().to_string()
+                };
                 TailscaleState::Unknown {
-                    detail: stderr.trim().to_string(),
+                    detail: if said.is_empty() {
+                        "Tailscale gave no answer.".to_string()
+                    } else {
+                        said
+                    },
                 }
             }
         }
@@ -194,7 +215,7 @@ pub async fn enable_funnel(port: u16) -> FunnelOutcome {
     };
     let target = format!("http://127.0.0.1:{port}");
     let set_path = format!("--set-path={MOUNT_PATH}");
-    let mut cmd = tokio::process::Command::new(bin);
+    let mut cmd = cli_command(bin);
     cmd.args(["funnel", "--bg", "--https=443", &set_path, &target])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
