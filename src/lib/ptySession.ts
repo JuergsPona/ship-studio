@@ -34,6 +34,10 @@ export interface OpenPtySessionArgs {
 export interface OpenPtySessionResult {
   sessionId: string;
   pid: number;
+  /** True when this call spawned a new process; false when it returned the
+   *  live session already registered under this id (a remount re-attach).
+   *  Optional so an older backend without the field still type-checks. */
+  spawned?: boolean;
 }
 
 export interface AttachPtySessionResult {
