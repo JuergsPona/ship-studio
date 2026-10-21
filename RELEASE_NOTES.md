@@ -6,6 +6,11 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v1.6.2
+
+- **Remote access: new projects and switching** - Your assistant can create a new project (shared and opened automatically), switch between shared projects, and screenshot a project that isn't showing without asking you to switch over
+
+
 ## What's New in v1.6.1
 
 - **Fixed remote access with the Tailscale app** - Remote access could show "Not reachable" and never finish setting up when Tailscale was installed from its website or the App Store
