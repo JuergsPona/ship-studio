@@ -201,7 +201,7 @@
      wears, so the tile reads as a physical object rather than a flat swatch. */
   border: var(--border-width-default) solid var(--tint-strong);
   box-shadow: var(--shadow-button);
-  color: var(--text-white);
+  color: var(--text-inverse);
   font-size: var(--font-size-h4);
   font-weight: 600;
   line-height: 1;

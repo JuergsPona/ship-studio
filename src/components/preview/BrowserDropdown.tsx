@@ -26,6 +26,8 @@ import { asCommandError, formatCommandError } from '../../lib/errors';
 import { isResourcePressureError } from '../../lib/errorReporting';
 import { Button, type ButtonVariant } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
+import { NativeSidebarBuilder } from '../../lib/nativeSidebar';
+import { useNativeSidebarPart } from '../../hooks/useNativeSidebarPart';
 
 interface BrowserDropdownProps {
   url: string;
@@ -148,6 +150,34 @@ export function BrowserDropdown({
     return <IconComponent size={14} />;
   };
 
+  const native = new NativeSidebarBuilder();
+  useNativeSidebarPart(`browser:${url}`, {
+    part: {
+      placement: 'row',
+      rowId: 'current-dev-server',
+      nodes: [
+        {
+          id: `browser:${url}`,
+          title: 'Open in Browser',
+          action: native.action(
+            `browser:${url}:default`,
+            'Open in default browser',
+            handleDefaultOpen
+          ),
+          menu: browsers.map((browser) =>
+            native.action(
+              `browser:${url}:${browser.id}`,
+              openingBrowser === browser.id
+                ? `Opening ${browser.name}…`
+                : `Open in ${browser.name}`,
+              openingBrowser ? undefined : () => handleBrowserOpen(browser.id)
+            )
+          ),
+        },
+      ],
+    },
+    actions: native.actions,
+  });
   const iconSize = iconOnly ? 12 : 14;
 
   // If no browsers detected, show simple button

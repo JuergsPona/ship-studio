@@ -6,17 +6,32 @@
   background: transparent;
 }
 
+/* Controllers stay mounted for shared subscriptions/actions. AppKit owns
+   rendering, accessibility and hit-testing only after mounting succeeds. */
+.workspace-sidebar[data-native-mounted] > * {
+  visibility: hidden;
+}
+
+/* Native Home navigation occupies a window-level titlebar band, including
+   when the sidebar is narrow. Main content must start below that band. */
+:root:has(.workspace-sidebar[data-native-mounted])
+  .app.workspace-home:not(.has-workspace-titlebar)
+  .projects-with-rail
+  > :is(.app, .dashboard-with-changelog, .project-loading-body) {
+  margin-block-start: calc(var(--control-height-standard) + (var(--spacing-sm) * 2));
+}
+
 :root[data-native-glass]
   .app.workspace:not(:has(.compact-workspace, .projects-with-rail.is-compact)) {
   box-sizing: border-box;
-  padding: 0 var(--space-08) var(--space-08);
+  padding: 0 var(--spacing-sm) var(--spacing-sm);
 }
 
 /* Keep the titlebar at the native window origin so traffic lights, drag
    regions and navigation controls retain their existing alignment. Its glass
    surface also supplies the top of the frame. */
 :root[data-native-glass] .workspace-titlebar {
-  margin-inline: calc(-1 * var(--space-08));
+  margin-inline: calc(-1 * var(--spacing-sm));
   background: transparent;
   border-bottom-color: transparent;
 }
@@ -34,7 +49,7 @@
    its controls their own space instead of overlapping the scroll area. */
 :root[data-native-glass] .workspace-sidebar-footer {
   margin-top: 0;
-  padding-top: var(--space-08);
+  padding-top: var(--spacing-sm);
 }
 
 :root[data-native-glass] .workspace-sidebar-footer-actions::before,
@@ -66,7 +81,7 @@
    inset rather than moving either the controls or the traffic lights. */
 :root[data-native-glass] .app.workspace-home .workspace-sidebar-top-row {
   padding-inline-start: calc(
-    var(--space-32) + var(--space-32) + var(--spacing-md) + var(--button-gap)
+    var(--spacing-2xl) + var(--spacing-2xl) + var(--spacing-md) + var(--button-gap)
   );
 }
 
@@ -78,7 +93,7 @@
   flex: 1;
   min-width: 0;
   height: auto;
-  margin-block-start: var(--space-08);
+  margin-block-start: var(--spacing-sm);
 }
 
 :root[data-native-glass] .workspace-main,

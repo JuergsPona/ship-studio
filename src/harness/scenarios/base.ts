@@ -119,6 +119,11 @@ export const baseCommands: CommandMap = {
     defaultAgent: 'Claude Code',
   },
   get_app_icon: 'brand',
+  get_theme_preference: 'dark',
+  set_theme_preference: null,
+  update_native_theme_control: false,
+  remove_native_theme_control: null,
+  focus_native_theme_control: null,
   // `null` is the real third state here: never asked. The toggle then reflects
   // default-on, and the explainer runs before the first capture.
   get_thumbnails_enabled: null,

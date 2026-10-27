@@ -34,6 +34,23 @@ export const appScenarios: Scenario[] = [
     commands: {},
   },
   {
+    id: 'dashboard-light',
+    requires: '.project-card',
+    title: 'Dashboard — light appearance',
+    looksRightWhen:
+      'White panels and soft gray surfaces have readable charcoal text, neutral actions, and visible borders. The independently selected Dock icon remains Dark.',
+    commands: { get_theme_preference: 'light', get_app_icon: 'dark' },
+  },
+  {
+    id: 'workspace-light',
+    requires: '.app.workspace',
+    title: 'Workspace — light appearance',
+    looksRightWhen:
+      'The sidebar, workspace chrome, menus, and editor panels share the neutral light palette. Project preview content retains its own styles.',
+    project: WORKSPACE_PROJECT,
+    commands: { ...workspaceCommands, get_theme_preference: 'light' },
+  },
+  {
     id: 'workspace-settings-menu',
     title: 'Workspace — Settings menu',
     looksRightWhen:

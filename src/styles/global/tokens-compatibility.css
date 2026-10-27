@@ -92,3 +92,16 @@
   --transition: 0.15s ease;
   --transition-slow: 0.3s ease;
 }
+
+:root[data-theme='light'] {
+  --info: var(--accent-focus);
+  --info-hover: var(--accent-focus);
+  --info-light: var(--accent-focus);
+  --purple: var(--accent-scope-project);
+  --purple-light: var(--accent-scope-project);
+  --modified-yellow: var(--accent-warning);
+  --border-rgb: 218, 218, 218;
+  --border-default-rgb: 218, 218, 218;
+  --tint: var(--tint-subtle);
+  --shadow: var(--shadow-sm);
+}

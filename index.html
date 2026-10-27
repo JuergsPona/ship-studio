@@ -4,12 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ship Studio</title>
+    <script>
+      // Paint the cached, previously persisted appearance before React loads.
+      // This preference is independent of the native Dock icon.
+      (function () {
+        var preference = 'system';
+        try {
+          var saved = localStorage.getItem('shipstudio.themePreference');
+          if (saved === 'light' || saved === 'dark') preference = saved;
+        } catch (_) {}
+        document.documentElement.dataset.theme =
+          preference === 'system'
+            ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+            : preference;
+      })();
+    </script>
     <!-- Nerd Fonts are loaded via JavaScript (src/lib/fonts.ts) from Tauri resources -->
     <style>
       html, body {
         margin: 0;
         padding: 0;
-        background: #1e1e1e;
+        background: var(--surface-app, #141414);
+      }
+      html[data-theme='light'], html[data-theme='light'] body {
+        background: var(--surface-app, #f1f1f1);
       }
     </style>
   </head>

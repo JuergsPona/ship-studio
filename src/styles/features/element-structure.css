@@ -108,6 +108,18 @@
   color: var(--text-muted);
 }
 
+/* The canvas toolbar keeps its blue selection surface in either app theme. */
+:root[data-theme='light'] .ss-el-toolbar__selection,
+:root[data-theme='light'] .ss-el-toolbar__actions,
+:root[data-theme='light'] .ss-el-toolbar__tag,
+:root[data-theme='light'] .ss-el-toolbar__tag-icon,
+:root[data-theme='light'] .ss-el-toolbar__selector,
+:root[data-theme='light'] .ss-el-toolbar__btn,
+:root[data-theme='light'] .ss-el-toolbar__btn:hover,
+:root[data-theme='light'] .ss-el-toolbar__busy {
+  color: var(--text-inverse);
+}
+
 /* ── Insert-element palette (portaled, shared by toolbar and tree menu) ── */
 
 .ss-insert-menu {

@@ -61,6 +61,7 @@ import { useActiveAccount } from '../../hooks/useActiveAccount';
 import { useOpenModal } from '../../contexts/ModalContext';
 import { useKeepDevServersRunning } from '../../hooks/useKeepDevServersRunning';
 import { useAutoStartProjectServers } from '../../hooks/useAutoStartProjectServers';
+import { ThemeSetting } from './ThemeSetting';
 
 const errMsg = (err: unknown) => formatCommandError(asCommandError(err));
 
@@ -711,6 +712,7 @@ export function SettingsModal({
           <TabsPanel value="appearance" className="settings-tab-panel">
             <div className="settings-modal-body">
               <div className="settings-section">
+                <ThemeSetting />
                 <div className="settings-group">
                   <div className="settings-row">
                     <div className="settings-row-info">

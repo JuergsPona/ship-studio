@@ -73,7 +73,7 @@
   position: absolute;
   inset: 0;
   display: none;
-  color: var(--text-white);
+  color: var(--text-inverse);
   background: var(--overlay-40);
 }
 

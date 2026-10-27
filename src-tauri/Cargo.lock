@@ -4911,6 +4911,7 @@ dependencies = [
  "base64 0.22.1",
  "block2 0.5.1",
  "bytes",
+ "cc",
  "chrono",
  "dirs 5.0.1",
  "dunce",

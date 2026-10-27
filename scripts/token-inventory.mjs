@@ -44,6 +44,12 @@ function manifestFiles(manifest) {
   return manifest.layers.flatMap((layer) => layer.files);
 }
 
+// A theme may override an existing role in its owning layer. It is not a
+// second token contract and must not replace the canonical inventory entry.
+function isLightThemeOverride(definition) {
+  return /^:root\[data-theme=["']light["']\]$/.test(definition.scope ?? '');
+}
+
 function layerByFile(manifest) {
   return new Map(manifest.layers.flatMap((layer) => layer.files.map((file) => [file, layer.name])));
 }
@@ -223,6 +229,14 @@ function validateTokenTaxonomy({
 
   for (const [name, entries] of duplicateNames) {
     if (entries.length < 2) continue;
+    if (
+      entries.length === 2 &&
+      entries[0].filePath === entries[1].filePath &&
+      entries[0].scope === ':root' &&
+      isLightThemeOverride(entries[1])
+    ) {
+      continue;
+    }
     diagnostics.push({
       code: 'duplicate-token',
       filePath: entries[1].filePath,
@@ -272,7 +286,7 @@ function validateTokenTaxonomy({
   }
 
   const metadataByName = new Map(
-    tokenDefinitions.map((definition) => [
+    tokenDefinitions.filter((definition) => !isLightThemeOverride(definition)).map((definition) => [
       definition.name,
       tokenMetadata(
         definition,
@@ -323,7 +337,11 @@ function buildInventory({ manifest, definitions, references }) {
   const layersByFile = layerByFile(manifest);
   const tokenFiles = tokenFilesAbsolute(manifest);
   const tokenDefinitions = definitions
-    .filter((definition) => manifestFiles(manifest).includes(relativePath(definition.filePath)))
+    .filter(
+      (definition) =>
+        manifestFiles(manifest).includes(relativePath(definition.filePath)) &&
+        !isLightThemeOverride(definition)
+    )
     .sort((a, b) => a.filePath.localeCompare(b.filePath) || a.line - b.line);
   const counts = referenceCounts(externalReferences(references, tokenFiles));
   const runtimeCounts = runtimeReferenceCounts();

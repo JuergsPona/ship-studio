@@ -26,7 +26,7 @@ import { CopyIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { trackEvent } from '../../lib/analytics';
 import { stripAnsi } from '../../lib/ansi';
-import { createTerminalOptions } from './terminalTheme';
+import { bindTerminalTheme, createTerminalOptions } from './terminalTheme';
 import '@xterm/xterm/css/xterm.css';
 
 /* Tail-limit the full-buffer send so we don't fire 3k+ lines of HMR
@@ -159,6 +159,7 @@ export function DevServerLogs({
     term.loadAddon(createWebLinksAddon());
 
     term.open(container);
+    const stopTheme = bindTerminalTheme(term, 'logs');
 
     // Initial fit + sync the PTY to the visible size so interactive prompts
     // render at the width the user actually sees. Cleared on cleanup so it
@@ -223,6 +224,7 @@ export function DevServerLogs({
 
     return () => {
       window.clearTimeout(initialFitTimer);
+      stopTheme();
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
       resizeObserver.disconnect();
       selectionDisposable.dispose();

@@ -162,6 +162,23 @@
   align-items: stretch;
 }
 
+.settings-theme-control > .button {
+  flex: 1;
+}
+
+.native-theme-control {
+  height: var(--control-height-standard);
+}
+
+.native-theme-control:focus {
+  outline: none; /* AppKit owns the visible keyboard focus ring. */
+}
+
+.native-theme-control > .settings-theme-control {
+  width: 100%;
+  height: 100%;
+}
+
 /* One rule, under the group — the tab's own divider already sits above the
    first row, so a second line there was two dividers with nothing between
    them. It runs the full width of the dialog rather than stopping inside the

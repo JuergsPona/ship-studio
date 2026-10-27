@@ -227,6 +227,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Require macOS 26 SDK
+        run: |
+          sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
+          if [ "${sdk_version%%.*}" -lt 26 ]; then
+            echo "::error::The native glass sidebar requires the macOS 26 SDK or newer."
+            exit 1
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:

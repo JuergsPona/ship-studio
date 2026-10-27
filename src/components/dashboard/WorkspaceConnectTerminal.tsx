@@ -19,7 +19,7 @@ import { createWebLinksAddon } from '../../lib/terminalLinks';
 import { loadNerdFonts } from '../../lib/fonts';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
-import { createTerminalOptions } from '../terminal/terminalTheme';
+import { bindTerminalTheme, createTerminalOptions } from '../terminal/terminalTheme';
 import {
   workspaceConnectStart,
   workspaceConnectWrite,
@@ -82,6 +82,7 @@ export function WorkspaceConnectTerminal({
       term.loadAddon(createWebLinksAddon());
       term.unicode.activeVersion = '11';
       term.open(container);
+      unlisteners.push(bindTerminalTheme(term, 'connection'));
       fitAddon.fit();
 
       // Keystrokes -> backend PTY.

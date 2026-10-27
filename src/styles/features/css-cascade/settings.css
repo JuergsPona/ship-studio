@@ -150,7 +150,7 @@
 
 .ss-settings__class-chip .ss-settings__class-remove:hover:not(:disabled) {
   background: transparent;
-  color: var(--text-white);
+  color: inherit;
   opacity: 1;
 }
 

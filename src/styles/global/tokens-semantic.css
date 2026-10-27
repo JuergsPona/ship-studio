@@ -2,6 +2,7 @@
 /* Semantic roles: product-facing intent. Definitions should reference core primitives. */
 
 :root {
+  color-scheme: dark;
   --font-size-micro: var(--font-size-07);
   --font-size-caption: var(--font-size-10);
   --tracking-micro: 0.56px;
@@ -167,4 +168,69 @@
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+/* The same semantic roles in light mode: neutral chrome, color for meaning. */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --surface-app: var(--color-gray-100);
+  --surface-panel: var(--color-white);
+  --surface-control: var(--color-gray-075);
+  --surface-control-hover: var(--color-gray-100);
+  --surface-selected: var(--color-gray-150);
+  --surface-recessed: var(--color-gray-100);
+  --surface-terminal-input: var(--surface-selected);
+  --surface-warning: rgba(232, 154, 28, 0.1);
+
+  --text-white: var(--color-gray-850);
+  --text-primary: var(--color-gray-850);
+  --text-secondary: var(--color-gray-700);
+  --text-muted: var(--color-gray-700);
+  --text-faint: var(--color-gray-600);
+  --text-terminal: var(--text-secondary);
+  --text-terminal-strong: var(--text-primary);
+  --text-on-accent: var(--color-white);
+
+  --border-default: var(--color-gray-175);
+  --border-subtle: var(--color-gray-150);
+  --border-strong: var(--color-gray-200);
+  --border-accent: var(--color-gray-700);
+
+  --accent-active: var(--color-gray-850);
+  --accent-active-hover: var(--color-gray-700);
+  --accent-focus: var(--color-blue-700);
+  --accent-success: var(--color-green-900);
+  --accent-warning: var(--color-orange-800);
+  --accent-error: var(--color-red-error-deep);
+  --accent-error-light: var(--color-red-error-deep);
+  --accent-scope-project: var(--color-purple-700);
+  --accent-active-rgb: 40, 40, 40;
+  --accent-success-rgb: 25, 123, 50;
+  --accent-warning-rgb: 151, 100, 18;
+  --accent-warning-light-rgb: 151, 100, 18;
+  --accent-error-rgb: 220, 38, 38;
+  --accent-error-light-rgb: 220, 38, 38;
+
+  --tint-subtle: rgba(0, 0, 0, 0.04);
+  --tint-strong: rgba(0, 0, 0, 0.09);
+  --shadow-button: 0 var(--stroke-1) var(--space-02) var(--color-black-o15);
+  --shadow-input-inset: inset 0 var(--stroke-1) var(--space-02) var(--color-black-o15);
+  --shadow-window: 0 var(--space-08) var(--space-24) var(--color-black-o15);
+  --shadow-sm: 0 var(--space-02) var(--space-08) var(--color-black-o15);
+  --shadow-md: 0 var(--space-08) var(--space-24) var(--color-black-o15);
+  --shadow-lg: 0 var(--space-16) var(--space-32) var(--color-black-o15);
+
+  --ansi-green: var(--accent-success);
+  --ansi-bright-green: var(--accent-success);
+  --ansi-red: var(--accent-error);
+  --ansi-yellow: var(--accent-warning);
+  --ansi-blue: var(--accent-focus);
+  --ansi-green-rgb: 25, 123, 50;
+  --ansi-red-rgb: 220, 38, 38;
+  --ansi-yellow-rgb: 151, 100, 18;
+  --ansi-blue-rgb: 0, 106, 204;
+  --code-keyword: var(--color-blue-700);
+  --code-string: var(--accent-warning);
+  --code-property: var(--color-blue-700);
+  --code-comment: var(--text-muted);
 }

@@ -36,6 +36,8 @@ import { logger } from '../../lib/logger';
 import { createPollFailureGate } from '../../lib/pollFailureGate';
 import { getSpotifyState, spotifyControl, type SpotifyState } from '../../lib/spotify';
 import { getSpotifyWidgetEnabled, SPOTIFY_WIDGET_ENABLED_CHANGED_EVENT } from '../../lib/settings';
+import { NativeSidebarBuilder } from '../../lib/nativeSidebar';
+import { useNativeSidebarPart } from '../../hooks/useNativeSidebarPart';
 
 /** Poll roughly every second while a track is actually playing. */
 const PLAYING_INTERVAL_MS = 1000;
@@ -212,9 +214,8 @@ export function SpotifyWidget({ isSidebarHidden }: SpotifyWidgetProps) {
 
   // Commits the seek once the interaction actually ends (mouse/touch release,
   // or a discrete keyboard step) rather than on every intermediate tick.
-  const handleSeekCommit = useCallback(
-    (event: SyntheticEvent<HTMLInputElement>) => {
-      const value = Number(event.currentTarget.value);
+  const commitSeek = useCallback(
+    (value: number) => {
       setOptimisticPosition(value);
       void (async () => {
         try {
@@ -226,6 +227,12 @@ export function SpotifyWidget({ isSidebarHidden }: SpotifyWidgetProps) {
       })();
     },
     [showToast]
+  );
+  const handleSeekCommit = useCallback(
+    (event: SyntheticEvent<HTMLInputElement>) => {
+      commitSeek(Number(event.currentTarget.value));
+    },
+    [commitSeek]
   );
 
   // Never launches Spotify — the backend guards `activate` to only focus an
@@ -271,6 +278,106 @@ export function SpotifyWidget({ isSidebarHidden }: SpotifyWidgetProps) {
     [mac, enabled, isOk, isPlaying, handlePlayPause, handleNext, handlePrevious]
   );
 
+  const native = new NativeSidebarBuilder();
+  const nativeVisible =
+    mac &&
+    enabled &&
+    state &&
+    (state.status === 'ok' || (state.status === 'permission_denied' && !isSidebarHidden));
+  const nativePosition = optimisticPosition ?? state?.position;
+  const nativeDuration = state?.duration;
+  useNativeSidebarPart(
+    'spotify',
+    nativeVisible
+      ? {
+          part: {
+            placement: 'top',
+            nodes:
+              state.status === 'permission_denied'
+                ? [
+                    {
+                      id: 'spotify.permission',
+                      title: 'Spotify permission required',
+                      tone: 'warning',
+                      action: native.action(
+                        'spotify.permission.open',
+                        'Open Privacy Settings',
+                        handleOpenAutomationSettings
+                      ),
+                    },
+                  ]
+                : [
+                    {
+                      id: 'spotify.track',
+                      title: state.trackName ?? 'Spotify',
+                      detail: state.artist ?? undefined,
+                      imageUrl: state.artworkUrl ?? undefined,
+                      action: native.action(
+                        'spotify.activate',
+                        isSidebarHidden ? (isPlaying ? 'Pause' : 'Play') : 'Open Spotify',
+                        isSidebarHidden ? handlePlayPause : handleActivate,
+                        isSidebarHidden ? (isPlaying ? 'pause.fill' : 'play.fill') : 'music.note'
+                      ),
+                    },
+                    ...(!isSidebarHidden
+                      ? [
+                          {
+                            id: 'spotify.controls',
+                            title: '',
+                            buttons: [
+                              native.action(
+                                'spotify.previous',
+                                'Previous track',
+                                handlePrevious,
+                                'backward.end.fill'
+                              ),
+                              native.action(
+                                'spotify.playPause',
+                                isPlaying ? 'Pause' : 'Play',
+                                handlePlayPause,
+                                isPlaying ? 'pause.fill' : 'play.fill'
+                              ),
+                              native.action(
+                                'spotify.next',
+                                'Next track',
+                                handleNext,
+                                'forward.end.fill'
+                              ),
+                            ],
+                          },
+                        ]
+                      : []),
+                    ...(!isSidebarHidden &&
+                    nativePosition != null &&
+                    nativeDuration != null &&
+                    nativeDuration > 0
+                      ? [
+                          {
+                            id: 'spotify.seek',
+                            title: 'Seek',
+                            slider: {
+                              min: 0,
+                              max: nativeDuration,
+                              value: Math.max(0, Math.min(nativePosition, nativeDuration)),
+                              action: native.action('spotify.seek', 'Seek', (value) => {
+                                const seconds = Number(value);
+                                if (
+                                  Number.isFinite(seconds) &&
+                                  seconds >= 0 &&
+                                  seconds <= nativeDuration
+                                )
+                                  commitSeek(seconds);
+                              }),
+                            },
+                          },
+                        ]
+                      : []),
+                  ],
+          },
+          actions: native.actions,
+        }
+      : null
+  );
   if (!mac || !enabled || !state) return null;
   if (state.status === 'not_running' || state.status === 'unsupported') return null;
 

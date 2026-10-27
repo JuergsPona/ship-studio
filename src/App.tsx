@@ -39,6 +39,7 @@ import { useBranchManagement } from './hooks/useBranchManagement';
 import { useNotifications } from './hooks/useNotifications';
 import { useProjectLifecycle } from './hooks/useProjectLifecycle';
 import { useAppSetup } from './hooks/useAppSetup';
+import { useAppSessionLifecycle } from './hooks/useAppSessionLifecycle';
 import { AppViewRouter } from './components/AppViewRouter';
 import { useAgentDeliveries } from './hooks/useAgentDeliveries';
 import { useAccountSelectNavigation } from './hooks/useAccountSelectNavigation';
@@ -211,25 +212,6 @@ function AppContents({ initialProjectPath }: AppProps) {
     setSplitPaneSizes,
   } = useTerminalManagement(currentProject?.path ?? null);
 
-  // Mirror EVERY active session's tabs into the session registry so the
-  // sidebar reflects both the current project's live tabs and every
-  // background project's tabs accurately. Because terminal state is now
-  // per-project in the hook, there's no cross-project contamination to
-  // guard against.
-  useEffect(() => {
-    for (const session of allSessions) {
-      const activeIdx = Math.max(
-        0,
-        session.tabs.findIndex((t) => t.id === session.activeTabId)
-      );
-      sessionRegistry.setTerminalTabs(
-        session.projectPath,
-        session.tabs.map((t) => ({ id: t.id, agentId: t.agentId, sessionId: t.sessionId })),
-        activeIdx
-      );
-    }
-  }, [allSessions]);
-
   // Listen for Cmd+Q quit confirmation from native menu
   useEffect(() => {
     const unlisten = listen('confirm-quit', () => {
@@ -274,21 +256,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     resizeDevServer,
   } = useDevServer(currentProject?.path ?? null);
 
-  // Cleanup every live dev server when the window is closed (prevents
-  // orphaned processes — there can be more than one hot server at a time
-  // when projects are pinned across switches).
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      try {
-        void stopAllServers();
-      } catch {
-        // Ignore errors during cleanup
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [stopAllServers]);
+  useAppSessionLifecycle(allSessions, stopAllServers);
 
   // Notification settings, attention tabs, agent status sound alerts
   const {

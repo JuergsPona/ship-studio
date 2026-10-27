@@ -19,6 +19,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useNativeSidebarOverlay } from '../../hooks/useNativeSidebarOverlay';
 
 interface ContextMenuPosition {
   align?: 'left' | 'right';
@@ -63,6 +64,7 @@ export function ContextMenu({ children }: ContextMenuProps) {
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const position = menu?.position ?? null;
   const isOpen = menu?.isOpen ?? false;
+  useNativeSidebarOverlay(isOpen);
 
   const close = useCallback(
     (immediate = false) => {

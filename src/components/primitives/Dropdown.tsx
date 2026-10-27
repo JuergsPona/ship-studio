@@ -14,6 +14,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useClickOutside } from '../../hooks/useClickOutside';
+import { useNativeSidebarOverlay } from '../../hooks/useNativeSidebarOverlay';
 
 const MENU_ITEM_SELECTOR = '[role="menuitem"]';
 const TYPEAHEAD_TIMEOUT_MS = 500;
@@ -112,6 +113,7 @@ export function Dropdown({
 }: DropdownProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = controlledOpen ?? internalOpen;
+  useNativeSidebarOverlay(isOpen);
   const [portalPos, setPortalPos] = useState<CSSProperties | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);

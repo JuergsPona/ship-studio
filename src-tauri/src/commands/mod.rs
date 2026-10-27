@@ -31,6 +31,8 @@ pub mod mcp;
 pub mod migration;
 pub mod mobile;
 pub mod monorepo;
+pub mod native_sidebar;
+pub mod native_theme_control;
 pub mod plugins;
 pub mod projects;
 pub mod proxy;

@@ -565,6 +565,10 @@ body.compact-mode-active html {
   color: var(--text-inverse);
 }
 
+:root[data-theme='light'] .button--variable {
+  color: var(--text-inverse);
+}
+
 .button--default:is([aria-pressed='true'], [aria-expanded='true'], [data-selected='true']),
 .button--secondary:is([aria-pressed='true'], [aria-expanded='true'], [data-selected='true']),
 .button--ghost:is([aria-pressed='true'], [aria-expanded='true'], [data-selected='true']) {

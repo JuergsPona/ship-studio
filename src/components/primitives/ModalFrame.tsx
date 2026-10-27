@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { CloseIcon } from '@/components/icons';
 import { IconButton } from './IconButton';
+import { useNativeSidebarOverlay } from '../../hooks/useNativeSidebarOverlay';
 
 interface ModalFrameBaseProps {
   isOpen: boolean;
@@ -297,6 +298,7 @@ export function ModalFrame({
   ariaLabel,
   initialFocusRef,
 }: ModalFrameProps) {
+  useNativeSidebarOverlay(isOpen);
   const parentDepth = useContext(ModalFrameDepthContext);
   const modalId = useId();
   const titleId = useId();

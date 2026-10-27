@@ -84,9 +84,16 @@ fn cleanup_agent_processes() {
 /// assets. The main window is built programmatically, so Tauri cannot apply
 /// `build.devUrl` automatically as it would for a window declared in config.
 fn main_webview_url() -> Result<tauri::WebviewUrl, String> {
-    if cfg!(debug_assertions) {
-        let port = std::env::var("SHIPSTUDIO_DEV_PORT")
-            .ok()
+    let dev_port = std::env::var("SHIPSTUDIO_DEV_PORT").ok();
+    main_webview_url_for_mode(tauri::is_dev(), dev_port.as_deref())
+}
+
+fn main_webview_url_for_mode(
+    is_dev: bool,
+    dev_port: Option<&str>,
+) -> Result<tauri::WebviewUrl, String> {
+    if is_dev {
+        let port = dev_port
             .and_then(|value| value.parse::<u16>().ok())
             .filter(|value| *value != 0)
             .unwrap_or(1420);
@@ -96,6 +103,41 @@ fn main_webview_url() -> Result<tauri::WebviewUrl, String> {
     }
 
     Ok(tauri::WebviewUrl::App("index.html".into()))
+}
+
+#[cfg(test)]
+mod main_webview_url_tests {
+    use super::main_webview_url_for_mode;
+    use tauri::WebviewUrl;
+
+    #[test]
+    fn packaged_builds_use_bundled_assets_even_with_a_dev_port() {
+        let url = main_webview_url_for_mode(false, Some("1430")).expect("bundled URL");
+        let WebviewUrl::App(path) = url else {
+            panic!("packaged builds must use bundled assets");
+        };
+        assert_eq!(path.as_path(), std::path::Path::new("index.html"));
+    }
+
+    #[test]
+    fn dev_builds_use_the_selected_local_server() {
+        let url = main_webview_url_for_mode(true, Some("1430")).expect("development URL");
+        let WebviewUrl::External(url) = url else {
+            panic!("development builds must use the Vite server");
+        };
+        assert_eq!(url.as_str(), "http://127.0.0.1:1430/");
+    }
+
+    #[test]
+    fn dev_builds_fall_back_for_invalid_ports() {
+        for port in [None, Some("0"), Some("invalid")] {
+            let url = main_webview_url_for_mode(true, port).expect("development URL");
+            let WebviewUrl::External(url) = url else {
+                panic!("development builds must use the Vite server");
+            };
+            assert_eq!(url.as_str(), "http://127.0.0.1:1420/");
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -231,6 +273,8 @@ pub fn run() {
 
                 let selected_app_icon = commands::settings::get_app_icon()?;
                 commands::settings::apply_app_icon(_app.handle(), &selected_app_icon)?;
+                let theme_preference = commands::settings::get_theme_preference()?;
+                commands::settings::apply_theme_preference(_app.handle(), &theme_preference);
             }
 
             // The static asset-protocol scope (tauri.conf.json) only covers
@@ -409,7 +453,11 @@ pub fn run() {
                         }
                         return;
                     }
-                    if let Some(window) = app_handle.get_webview_window("main") {
+                    if let Some(window) = app_handle
+                        .webview_windows()
+                        .into_values()
+                        .find(|window| window.is_focused().unwrap_or(false))
+                    {
                         if let Some(number) = event_id
                             .strip_prefix("switch_project_")
                             .and_then(|value| value.parse::<u8>().ok())
@@ -511,6 +559,11 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::native_sidebar::update_native_sidebar,
+            commands::native_sidebar::remove_native_sidebar,
+            commands::native_theme_control::update_native_theme_control,
+            commands::native_theme_control::remove_native_theme_control,
+            commands::native_theme_control::focus_native_theme_control,
             // Git & Prerequisites
             commands::git::check_prerequisites,
             commands::git::get_shipstudio_dir,
@@ -714,6 +767,8 @@ pub fn run() {
             commands::settings::set_thumbnails_enabled,
             commands::settings::get_app_icon,
             commands::settings::set_app_icon,
+            commands::settings::get_theme_preference,
+            commands::settings::set_theme_preference,
             // Accounts (Workspaces)
             commands::accounts::list_accounts,
             commands::accounts::create_account,

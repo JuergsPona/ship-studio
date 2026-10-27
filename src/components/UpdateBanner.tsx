@@ -23,6 +23,8 @@ import { Button } from './primitives/Button';
 import { IconButton } from './primitives/IconButton';
 import { ModalFrame } from './primitives/ModalFrame';
 import { Spinner } from './primitives/Spinner';
+import { NativeSidebarBuilder } from '../lib/nativeSidebar';
+import { useNativeSidebarPart } from '../hooks/useNativeSidebarPart';
 import '../styles/features/update-banner.css';
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
@@ -212,6 +214,63 @@ export function UpdateBanner() {
     setModalOpen(false);
   }, [availableUpdate]);
 
+  const native = new NativeSidebarBuilder();
+  useNativeSidebarPart(
+    'app-update',
+    availableUpdate && !deferred
+      ? {
+          part: {
+            placement: 'footer',
+            nodes: [
+              {
+                id: 'app-update',
+                title:
+                  status === 'downloading'
+                    ? `Downloading ${progress}%`
+                    : status === 'ready'
+                      ? 'Restart to apply update'
+                      : status === 'error'
+                        ? 'Update needs attention'
+                        : 'Update available',
+                detail: availableUpdate.info.version,
+                busy: status === 'downloading',
+                tone: status === 'error' ? 'error' : 'normal',
+                action: native.action(
+                  'app-update.details',
+                  "View what's new",
+                  status === 'downloading' || status === 'ready'
+                    ? undefined
+                    : () => setModalOpen(true)
+                ),
+                buttons: [
+                  native.action(
+                    'app-update.install',
+                    status === 'ready' ? 'Restart' : 'Install update',
+                    status === 'downloading'
+                      ? undefined
+                      : status === 'ready'
+                        ? handleRestart
+                        : handleUpdate,
+                    'arrow.down.circle'
+                  ),
+                  ...(status === 'idle' || status === 'error'
+                    ? [
+                        native.action(
+                          'app-update.dismiss',
+                          'Dismiss update until next launch',
+                          handleLater,
+                          'xmark'
+                        ),
+                      ]
+                    : []),
+                ],
+              },
+            ],
+          },
+          actions: native.actions,
+        }
+      : null
+  );
   if (!availableUpdate || deferred) return null;
 
   const version = availableUpdate.info.version;

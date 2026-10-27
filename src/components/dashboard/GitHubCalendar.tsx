@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback, memo } from 'react';
 import { GitHubCalendar as GitHubCalendarLib } from 'react-github-calendar';
 import { EyeOffIcon } from '@/components/icons';
 import { Tooltip } from '../primitives/Tooltip';
+import { useAppTheme } from '../../hooks/useAppTheme';
 
 interface Activity {
   date: string;
@@ -64,7 +65,7 @@ interface GitHubCalendarProps {
 // Custom theme using app colors.
 //
 // BOTH `light` and `dark` MUST be provided as explicit 5-color hex scales, even
-// though we only ever render `colorScheme="dark"`. react-activity-calendar fills
+// when choosing either color scheme. react-activity-calendar fills
 // any missing scale from its own default, and that default is generated with
 // `color-mix(in oklab, …)`. It mutates the passed-in theme object to cache that
 // scale, then re-validates it on a later render via `CSS.supports('color', …)`.
@@ -120,6 +121,7 @@ export const GitHubCalendar = memo(function GitHubCalendar({
   isAuthCheckDone,
   onHide,
 }: GitHubCalendarProps) {
+  const { resolved } = useAppTheme();
   const currentYear = new Date().getFullYear();
   const [dataLoaded, setDataLoaded] = useState(false);
 
@@ -171,7 +173,7 @@ export const GitHubCalendar = memo(function GitHubCalendar({
         <div style={{ display: dataLoaded ? 'block' : 'none' }}>
           <GitHubCalendarLib
             username={username}
-            colorScheme="dark"
+            colorScheme={resolved}
             theme={theme}
             blockSize={12}
             blockMargin={2}

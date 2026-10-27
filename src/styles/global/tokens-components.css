@@ -401,3 +401,36 @@
      as fainter still. Frame names want to read as one word. */
   --canvas-label-tracking: 0;
 }
+
+:root[data-theme='light'] {
+  --property-text: var(--color-blue-700);
+  --property-text-hover: var(--color-blue-600);
+  --property-field-hover: rgba(0, 106, 204, 0.08);
+  --property-field-selected: rgba(0, 106, 204, 0.14);
+  --property-label-modified-surface: rgba(0, 106, 204, 0.08);
+  --property-label-inherited-surface: rgba(151, 100, 18, 0.08);
+  --property-label-modified-text: var(--color-blue-700);
+  --property-label-inherited-text: var(--accent-warning);
+  --tag-text: var(--accent-success);
+  --tag-surface: rgba(25, 123, 50, 0.1);
+  --tag-chip-surface: var(--accent-success);
+  --tag-chip-surface-hover: var(--color-green-900);
+  --variable-text: var(--color-purple-700);
+  --variable-text-hover: var(--color-purple-600);
+  --variable-field-hover: rgba(115, 76, 224, 0.08);
+  --variable-field-selected: rgba(115, 76, 224, 0.14);
+  --class-text: var(--accent-warning);
+  --function-text: var(--accent-error);
+  --media-text: var(--color-pink-600);
+
+  --button-primary-start: var(--text-primary);
+  --button-primary-mid: var(--text-primary);
+  --button-primary-end: var(--text-primary);
+  --button-primary-busy: var(--text-secondary);
+  --button-surface-busy: var(--surface-control);
+  --button-warning-text-hover: var(--accent-warning);
+  --editor-panel-spacing-label: var(--text-muted);
+  --editor-panel-spacing-value: var(--text-secondary);
+  --editor-panel-spacing-margin-top-hover: var(--border-strong);
+  --editor-panel-spacing-padding-bottom-hover: var(--border-strong);
+}

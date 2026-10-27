@@ -100,6 +100,30 @@ test('duplicate token definitions are reported across token files', () => {
   assert.ok(diagnostics.some((diagnostic) => diagnostic.code === 'duplicate-token'));
 });
 
+test('light appearance overrides stay in the owning token file', () => {
+  const canonical = { ...definitions[1], scope: ':root' };
+  const light = { ...canonical, scope: ":root[data-theme='light']", line: 20 };
+  const validate = (override) =>
+    validateTokenTaxonomy({
+      manifest,
+      indexSource,
+      definitions: [definitions[0], canonical, override],
+      references: [],
+      root,
+    });
+  assert.deepEqual(validate(light), []);
+  assert.ok(
+    validate({ ...light, filePath: root + '/src/styles/global/tokens-components.css' }).some(
+      (diagnostic) => diagnostic.code === 'duplicate-token'
+    )
+  );
+  assert.ok(
+    validate({ ...light, scope: ':root' }).some(
+      (diagnostic) => diagnostic.code === 'duplicate-token'
+    )
+  );
+});
+
 test('restricted primitive consumers are bounded by the migration baseline', () => {
   const references = [
     {

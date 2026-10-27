@@ -69,7 +69,7 @@ import {
   shouldArmStartupWatchdog,
   STARTUP_TIMEOUT_MS,
 } from './startupWatchdog';
-import { createTerminalOptions } from './terminalTheme';
+import { bindTerminalTheme, createTerminalOptions } from './terminalTheme';
 import { agentPromptArgs, type AgentConfig } from '../../lib/agent';
 import '@xterm/xterm/css/xterm.css';
 
@@ -427,6 +427,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
     // Open terminal in container
     term.open(container);
+    const stopTheme = bindTerminalTheme(term, 'normal');
 
     // Use WebGL renderer for GPU-accelerated rendering (reduces flickering).
     // Gated by a user setting — some macOS beta / GPU-driver combinations render corrupted
@@ -1301,6 +1302,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       mounted = false;
       webglTornDown = true;
       disposeWebgl?.();
+      stopTheme();
       resizeObserver.disconnect();
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       if (startupTimer) clearTimeout(startupTimer);

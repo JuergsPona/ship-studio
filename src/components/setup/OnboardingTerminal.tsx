@@ -26,7 +26,7 @@ import {
 } from '../terminal/startupWatchdog';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
-import { createTerminalOptions } from '../terminal/terminalTheme';
+import { bindTerminalTheme, createTerminalOptions } from '../terminal/terminalTheme';
 import '@xterm/xterm/css/xterm.css';
 
 /**
@@ -125,6 +125,7 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
 
     // Open terminal in container
     term.open(container);
+    const stopTheme = bindTerminalTheme(term, 'onboarding');
 
     // Initial fit
     setTimeout(() => {
@@ -570,6 +571,7 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
       mounted = false;
       if (startupTimer) clearTimeout(startupTimer);
       resizeObserver.disconnect();
+      stopTheme();
       cleanup();
     };
   }, [isReady, command, args, cwd, cleanup]);

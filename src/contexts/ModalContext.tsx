@@ -50,6 +50,7 @@ export type ModalId =
   | 'remoteAccess';
 
 interface ModalContextValue {
+  anyOpen: boolean;
   isOpen: (id: ModalId) => boolean;
   open: (id: ModalId) => void;
   close: (id: ModalId) => void;
@@ -114,8 +115,8 @@ export function ModalProvider({ children }: ProviderProps) {
   }, []);
 
   const value = useMemo<ModalContextValue>(
-    () => ({ isOpen, open, close, toggle, registerOnClose }),
-    [isOpen, open, close, toggle, registerOnClose]
+    () => ({ anyOpen: openSet.size > 0, isOpen, open, close, toggle, registerOnClose }),
+    [openSet, isOpen, open, close, toggle, registerOnClose]
   );
 
   return <ModalContext.Provider value={value}>{children}</ModalContext.Provider>;
@@ -130,6 +131,11 @@ export function useOpenModal(): (id: ModalId) => void {
   const ctx = useContext(ModalContext);
   if (!ctx) throw new Error('useOpenModal must be used inside a <ModalProvider>');
   return ctx.open;
+}
+
+/** Native sibling views must yield hit-testing to web modal surfaces. */
+export function useAnyModalOpen(): boolean {
+  return useContext(ModalContext)?.anyOpen ?? false;
 }
 
 /**

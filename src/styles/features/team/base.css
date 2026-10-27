@@ -139,7 +139,7 @@
 /* The swatches are mid-tone fills chosen to carry white text in both themes;
    letting the initials inherit would put muted grey on them in light mode. */
 .team-avatar[data-swatch] .team-avatar-initials {
-  color: var(--text-white);
+  color: var(--text-inverse);
 }
 
 .team-avatar--sm {

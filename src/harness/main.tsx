@@ -25,6 +25,7 @@ import { findScenario, scenarios } from './scenarios';
 import { unhandledCalls } from './unhandled';
 import { listCommands, runCommand, whenRegistryStable } from './commandBridge';
 import { HarnessOverlay } from './HarnessOverlay';
+import { initializeTheme } from '../lib/theme';
 
 const params = new URLSearchParams(window.location.search);
 const scenario = findScenario(params.get('scenario'));
@@ -45,6 +46,8 @@ if (params.get('freeze') !== 'off') {
 
 // The IPC bridge must exist before any app module runs an effect.
 installFakeBackend(scenario);
+const stopTheme = initializeTheme();
+if (import.meta.hot) import.meta.hot.dispose(stopTheme);
 
 exposeReactGlobals(React, ReactDOM);
 exposePluginContextRef();

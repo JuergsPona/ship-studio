@@ -39,7 +39,7 @@ import { getTerminalGpuEnabled } from '../../lib/settings';
 import { loadNerdFonts } from '../../lib/fonts';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
-import { createTerminalOptions } from './terminalTheme';
+import { bindTerminalTheme, createTerminalOptions } from './terminalTheme';
 import '@xterm/xterm/css/xterm.css';
 
 interface BuildTerminalProps {
@@ -113,6 +113,7 @@ export function BuildTerminal({
     term.loadAddon(createWebLinksAddon());
     term.unicode.activeVersion = '11';
     term.open(container);
+    disposers.push(bindTerminalTheme(term, 'build'));
     termRef.current = term;
     fitRef.current = fit;
 

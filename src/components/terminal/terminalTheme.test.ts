@@ -67,7 +67,7 @@ const variants: Array<
 
 describe('createTerminalOptions', () => {
   it.each(variants)('keeps the %s surface contract explicit', (variant, expected) => {
-    expect(createTerminalOptions(variant)).toMatchObject({
+    expect(createTerminalOptions(variant, {}, 'dark')).toMatchObject({
       fontFamily: '"JetBrainsMono NF", Menlo, Monaco, "Courier New", monospace',
       fontSize: expected.fontSize,
       lineHeight: 1.2,
@@ -83,16 +83,26 @@ describe('createTerminalOptions', () => {
   });
 
   it('merges behavior and theme overrides without dropping the shared palette', () => {
-    const options = createTerminalOptions('logs', {
-      disableStdin: true,
-      theme: { cursor: '#00ff00' },
-    });
+    const options = createTerminalOptions(
+      'logs',
+      { disableStdin: true, theme: { cursor: '#00ff00' } },
+      'dark'
+    );
 
     expect(options.disableStdin).toBe(true);
     expect(options.theme).toMatchObject({
       cursor: '#00ff00',
       red: '#cd3131',
       brightBlue: '#3b8eea',
+    });
+  });
+
+  it.each(variants)('gives the %s surface readable light colors', (variant) => {
+    expect(createTerminalOptions(variant, {}, 'light').theme).toMatchObject({
+      background: variant === 'logs' ? '#ffffff' : '#f1f1f1',
+      foreground: '#282828',
+      cursor: '#282828',
+      brightWhite: '#282828',
     });
   });
 });

@@ -841,7 +841,7 @@
 
 .crop-selection {
   position: absolute;
-  border: 1px solid color-mix(in srgb, var(--text-white) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-inverse) 80%, transparent);
   background: transparent;
   box-shadow: 0 0 0 9999px var(--overlay-50);
   pointer-events: none;
@@ -866,7 +866,7 @@
 
 .crop-hint {
   font-size: var(--font-size-body-md);
-  color: color-mix(in srgb, var(--text-white) 60%, transparent);
+  color: color-mix(in srgb, var(--text-inverse) 60%, transparent);
 }
 
 /* Preview loading and error states */

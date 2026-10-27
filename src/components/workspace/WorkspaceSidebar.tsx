@@ -68,6 +68,18 @@ import { useOptionalToast } from '../../contexts/ToastContext';
 import { setActiveAccountId, type Account } from '../../lib/accounts';
 import { DragSortHandle, DragSortItem, DragSortScope } from '../primitives/DragSort';
 import type { DragSortMove } from '../../lib/drag-sort/types';
+import {
+  NativeSidebarBuilder,
+  type NativeSidebarNode,
+  type NativeSidebarPresentation,
+} from '../../lib/nativeSidebar';
+import {
+  parseNativeSidebarMove,
+  parseNativeSidebarShortcut,
+} from '../../lib/nativeSidebarPayloads';
+import { nativeSection } from '../../lib/sidebarNativePresentation';
+import { NativeSidebarProvider, useNativeSidebarParts } from '../../hooks/useNativeSidebarPart';
+import { useNativeSidebarHost } from '../../hooks/useNativeSidebarHost';
 import { ProjectSettingsModal } from './ProjectSettingsModal';
 import {
   ContextMenu,
@@ -403,7 +415,15 @@ function projectDotState(
   return row.status === 'active' ? 'idle' : 'muted';
 }
 
-export const WorkspaceSidebar = memo(function WorkspaceSidebar({
+export const WorkspaceSidebar = memo(function WorkspaceSidebar(props: Props) {
+  return (
+    <NativeSidebarProvider>
+      <WorkspaceSidebarContent {...props} />
+    </NativeSidebarProvider>
+  );
+});
+
+const WorkspaceSidebarContent = memo(function WorkspaceSidebarContent({
   isHomeActive,
   activeNav,
   onGoWorkflows,
@@ -454,6 +474,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   // old default the last one sat hard against the resize edge.
   const [sidebarWidth, setSidebarWidth] = useState(219);
   const sidebarRef = useRef<HTMLElement>(null);
+  const nativeParts = useNativeSidebarParts();
   const sidebarProjectSettingsModal = useModal('sidebarProjectSettings');
   const sidebarProjectRenameModal = useModal('sidebarProjectRename');
   const { showToast } = useOptionalToast();
@@ -1201,6 +1222,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     return null;
   };
 
+  const nativeBuilder = new NativeSidebarBuilder();
+  const nativeProjects = new Map<string, NativeSidebarNode>();
+
   // Single row renderer shared by both groups — the current project gets its
   // live agent/terminal/command sections; anyone else gets the read-only
   // InactiveProjectSections view fed from the session registry.
@@ -1277,6 +1301,131 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         onSelect: () => onSelectProject(s.projectPath),
         onClose: onCloseProject ? () => onCloseProject(s.projectPath) : undefined,
       }));
+    const nativeId = `project:${row.projectPath}`;
+    const sectionPrefix = nativeId;
+    const background = inactiveProjectItems(
+      sessionRegistry.snapshot(row.projectPath),
+      filterLower,
+      serverSnapshot,
+      (sessionId) => {
+        if (onSelectProjectTab) onSelectProjectTab(row.projectPath, sessionId);
+        else onSelectProject(row.projectPath);
+      }
+    );
+    const section = (
+      id: SectionId,
+      label: string,
+      items: SidebarItem[],
+      empty: string,
+      add?: () => void,
+      options?: { id: string; displayName: string; run: () => void }[]
+    ) =>
+      nativeSection(
+        nativeBuilder,
+        `${sectionPrefix}:${id}`,
+        label,
+        items,
+        empty,
+        isCurrent ? collapsed[id] : false,
+        isCurrent ? () => toggleSection(id) : undefined,
+        add,
+        options
+      );
+    const nativeChildren: NativeSidebarNode[] = [];
+    const nativeWorktrees = isCurrent ? worktreeItems : familyWorktreeItems;
+    if (nativeWorktrees.length)
+      nativeChildren.push(
+        section(
+          'worktrees',
+          'Worktrees',
+          nativeWorktrees,
+          'No worktrees',
+          isCurrent ? onAddWorktree : undefined
+        )
+      );
+    nativeChildren.push(
+      section(
+        'agents',
+        'Agents',
+        isCurrent ? filteredAgents : background.agents,
+        'No agents running',
+        isCurrent && !atMaxTabs ? () => onAddTab() : undefined,
+        isCurrent && !atMaxTabs
+          ? AGENT_ADD_OPTIONS.map((agent) => ({
+              id: agent.id,
+              displayName: agent.displayName,
+              run: () => onAddTab(agent.id),
+            }))
+          : undefined
+      ),
+      section(
+        'terminals',
+        'Terminals',
+        isCurrent ? filteredTerminals : background.terminals,
+        'No terminals',
+        isCurrent && !atMaxTabs ? () => onAddTab(TERMINAL.id) : undefined
+      ),
+      section(
+        'commands',
+        'Dev server',
+        isCurrent ? filteredCommands : background.commands,
+        'Not running'
+      )
+    );
+    nativeProjects.set(row.projectPath, {
+      id: nativeId,
+      title: row.fallbackName,
+      detail: [
+        projectActivityLabel(
+          projectActivityStatus(row, sessionRegistry.snapshot(row.projectPath)?.terminalTabs)
+        ),
+        serverStatusLabel(serverSnapshot.status),
+        shortcutNumberFor(row) !== null ? `⌘${shortcutNumberFor(row)}` : null,
+        row.memoryBytes > 0 ? `${Math.round(row.memoryBytes / (1024 * 1024))}MB` : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      selected: isCurrent,
+      expanded: expanded && !isSidebarHidden,
+      busy: workingProjectFamilies.has(familyRootOf(row.projectPath)),
+      dragGroup: sortable ? sortGroup : undefined,
+      action: nativeBuilder.action(`${nativeId}:select`, row.fallbackName, () => {
+        if (!isCurrent) onSelectProject(row.projectPath);
+      }),
+      toggle: nativeBuilder.action(`${nativeId}:toggle`, 'Expand or collapse project', () =>
+        toggleProjectExpanded(row.projectPath)
+      ),
+      buttons: canClose
+        ? [
+            nativeBuilder.action(
+              `${nativeId}:close`,
+              `Close ${row.fallbackName}`,
+              closeFamily,
+              'xmark'
+            ),
+          ]
+        : [],
+      menu: [
+        nativeBuilder.action(
+          `${nativeId}:settings`,
+          'Project Settings',
+          () => handleOpenProjectSettings(row),
+          'gearshape'
+        ),
+        nativeBuilder.action(
+          `${nativeId}:rename-project`,
+          'Rename project',
+          onRenameProject ? () => handleOpenRenameProject(row) : undefined
+        ),
+        nativeBuilder.action(`${nativeId}:stop`, 'Stop dev server', stopDevServer),
+        nativeBuilder.action(
+          `${nativeId}:pin`,
+          isPinned ? 'Unpin from sidebar' : 'Pin to sidebar',
+          togglePin ? () => togglePin(!isPinned) : undefined
+        ),
+      ],
+      children: nativeChildren,
+    });
     return (
       <ProjectGroup
         key={row.projectPath}
@@ -1659,6 +1808,229 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     </>
   );
 
+  const nativePresentation: NativeSidebarPresentation = {
+    compact: isSidebarHidden ?? false,
+    top: [
+      ...(showNavigationControls
+        ? [
+            {
+              id: 'navigation',
+              title: '',
+              buttons: [
+                ...(onToggleSidebar
+                  ? [
+                      nativeBuilder.action(
+                        'navigation.toggle',
+                        isSidebarHidden ? 'Show sidebar' : 'Hide sidebar',
+                        onToggleSidebar,
+                        'sidebar.left'
+                      ),
+                    ]
+                  : []),
+                {
+                  ...nativeBuilder.action(
+                    'navigation.home',
+                    'Home',
+                    () => {
+                      if (!isHomeActive) onGoHome();
+                    },
+                    'house'
+                  ),
+                  selected: isHomeActive,
+                },
+                ...(onGoWorkflows
+                  ? [
+                      {
+                        ...nativeBuilder.action(
+                          'navigation.workflows',
+                          'Workflows',
+                          () => {
+                            if (activeNav !== 'workflows') onGoWorkflows?.();
+                          },
+                          'waveform.path'
+                        ),
+                        selected: activeNav === 'workflows',
+                      },
+                    ]
+                  : []),
+                ...(onGoInbox
+                  ? [
+                      {
+                        ...nativeBuilder.action(
+                          'navigation.inbox',
+                          inboxUnreadCount ? `Inbox — ${inboxUnreadCount} unread` : 'Inbox',
+                          () => {
+                            if (activeNav !== 'inbox') onGoInbox?.();
+                          },
+                          'tray'
+                        ),
+                        selected: activeNav === 'inbox',
+                      },
+                    ]
+                  : []),
+              ],
+            },
+          ]
+        : []),
+      {
+        id: 'search',
+        title: 'Search  ⌘K',
+        action: nativeBuilder.action(
+          'search.open',
+          'Open command palette',
+          () => openPalette(),
+          'magnifyingglass'
+        ),
+      },
+    ],
+    body: [
+      {
+        id: 'group:pinned',
+        title: 'Pinned',
+        detail: String(visiblePinned.length),
+        expanded: pinnedOpen,
+        toggle: nativeBuilder.action('group:pinned:toggle', 'Expand or collapse Pinned', () =>
+          toggleGroup('pinned')
+        ),
+        children: visiblePinned
+          .map((row) => nativeProjects.get(row.projectPath))
+          .filter((node): node is NativeSidebarNode => node !== undefined),
+      },
+      {
+        id: 'group:active',
+        title: 'Active',
+        detail: String(visibleActive.length),
+        expanded: activeOpen,
+        toggle: nativeBuilder.action('group:active:toggle', 'Expand or collapse Active', () =>
+          toggleGroup('projects')
+        ),
+        children: visibleActive
+          .map((row) => nativeProjects.get(row.projectPath))
+          .filter((node): node is NativeSidebarNode => node !== undefined),
+      },
+      {
+        id: 'project.open',
+        title: 'Open project',
+        action: nativeBuilder.action('project.open', 'Open project', onOpenProjectPicker, 'plus'),
+      },
+    ],
+    footer: [
+      ...(showWorkspaceSwitcher && activeAccount
+        ? [
+            {
+              id: 'workspace.switcher',
+              title: activeAccount.name,
+              menu: [
+                ...otherWorkspaces.map((account) =>
+                  nativeBuilder.action(
+                    `workspace.switch:${account.id}`,
+                    account.name,
+                    switchingWorkspaceId ? undefined : () => handleWorkspaceSelect(account)
+                  )
+                ),
+                nativeBuilder.action('workspace.manage', 'Switch Workspace…', onSwitchAccount),
+                nativeBuilder.action('workspace.new', 'New Workspace…', openNewWorkspace),
+              ],
+            },
+          ]
+        : []),
+      {
+        id: 'settings',
+        title: 'Settings & Help',
+        menu: [
+          nativeBuilder.action('settings.open', 'App Settings', appSettingsModal.open),
+          nativeBuilder.action('settings.bug', 'Report Bug', bugReportModal.open),
+          nativeBuilder.action('settings.feature', 'Feature Request', featureRequestModal.open),
+          nativeBuilder.action('settings.changelog', "What's New", changelogModal.open),
+        ],
+      },
+    ],
+    moveAction: nativeBuilder.action(
+      'projects.move',
+      'Move project',
+      hasSortableProjectGroups
+        ? async (value) => {
+            if (!value) return;
+            const move = parseNativeSidebarMove(value);
+            if (!move) return;
+            const source = [...nativeProjects.values()].find((node) => node.id === move.id);
+            if (!source?.dragGroup) return;
+            const from = source.dragGroup;
+            if (from !== move.group && !canMoveBetweenProjectGroups) return;
+            const row = [...nativeProjects.entries()].find(([, node]) => node.id === move.id);
+            if (!row) return;
+            const projectPath = row[0];
+            const sourceRows = from === 'pinned' ? visiblePinned : visibleActive;
+            const destinationRows = move.group === 'pinned' ? visiblePinned : visibleActive;
+            let index = Math.max(0, Math.min(move.index, destinationRows.length));
+            const fromIndex = sourceRows.findIndex(
+              (candidate) => candidate.projectPath === projectPath
+            );
+            if (from === move.group && fromIndex < index) index -= 1;
+            const order = destinationRows
+              .map((candidate) => candidate.projectPath)
+              .filter((path) => path !== projectPath);
+            order.splice(index, 0, projectPath);
+            await handleProjectMove({
+              activeId: projectPath,
+              input: 'pointer',
+              from: { group: from, index: fromIndex },
+              to: { group: move.group, index },
+              projectedOrder: order,
+            });
+          }
+        : undefined
+    ),
+  };
+  nativeBuilder.action('sidebar.shortcut', 'Sidebar keyboard shortcut', (value) => {
+    if (!value) return;
+    const key = parseNativeSidebarShortcut(value);
+    if (!key) return;
+    window.dispatchEvent(
+      new window.KeyboardEvent('keydown', { ...key, bubbles: true, cancelable: true })
+    );
+  });
+  const findNativeNode = (
+    nodes: NativeSidebarNode[],
+    id: string
+  ): NativeSidebarNode | undefined => {
+    for (const node of nodes) {
+      if (node.id === id) return node;
+      const child = findNativeNode(node.children ?? [], id);
+      if (child) return child;
+    }
+  };
+  const nativeFooterParts: NativeSidebarNode[] = [];
+  for (const contribution of nativeParts?.values() ?? []) {
+    for (const [id, handler] of contribution.actions) nativeBuilder.actions.set(id, handler);
+    if (contribution.part.placement === 'row') {
+      const targets =
+        contribution.part.rowId === 'current-dev-server'
+          ? [...nativeProjects.values()]
+              .filter((node) => node.selected)
+              .map((project) =>
+                findNativeNode(project.children ?? [], `${project.id}:commands:dev-server`)
+              )
+          : [findNativeNode(nativePresentation.body, contribution.part.rowId ?? '')];
+      for (const target of targets)
+        if (target)
+          target.menu = [
+            ...(target.menu ?? []),
+            ...contribution.part.nodes.flatMap((node) => [
+              ...(node.action ? [node.action] : []),
+              ...(node.menu ?? []),
+            ]),
+          ];
+    } else if (contribution.part.placement === 'footer') {
+      nativeFooterParts.push(...contribution.part.nodes);
+    } else {
+      const destination = nativePresentation[contribution.part.placement];
+      destination.push(...contribution.part.nodes);
+    }
+  }
+  nativePresentation.footer = [...nativeFooterParts, ...nativePresentation.footer];
+  useNativeSidebarHost(sidebarRef, nativePresentation, nativeBuilder.actions);
+
   return (
     <>
       <aside
@@ -2002,20 +2374,12 @@ function SidebarGroupHeader({
  * render active. Clicking a tab switches to that project and focuses the
  * tab — the live Terminal just unhides, no reconnect required.
  */
-function InactiveProjectSections({
-  snapshot,
-  worktreeItems,
-  filterLower,
-  serverSnapshot,
-  onSelectTab,
-}: {
-  snapshot: SessionSnapshot | undefined;
-  /** Hot worktree sessions in this project's family (empty when none). */
-  worktreeItems?: SidebarItem[];
-  filterLower: string;
-  serverSnapshot: ProjectDevServerSnapshot;
-  onSelectTab: (sessionId: string) => void;
-}) {
+function inactiveProjectItems(
+  snapshot: SessionSnapshot | undefined,
+  filterLower: string,
+  serverSnapshot: ProjectDevServerSnapshot,
+  onSelectTab: (sessionId: string) => void
+) {
   const tabs: ReadonlyArray<SessionTerminalTab> = snapshot?.terminalTabs ?? [];
   const matches = (label: string) => !filterLower || label.toLowerCase().includes(filterLower);
   const agentCounts = new Map<string, number>();
@@ -2051,6 +2415,29 @@ function InactiveProjectSections({
       ]
     : [];
 
+  return { agents, terminals, commands };
+}
+
+function InactiveProjectSections({
+  snapshot,
+  worktreeItems,
+  filterLower,
+  serverSnapshot,
+  onSelectTab,
+}: {
+  snapshot: SessionSnapshot | undefined;
+  worktreeItems?: SidebarItem[];
+  filterLower: string;
+  serverSnapshot: ProjectDevServerSnapshot;
+  onSelectTab: (sessionId: string) => void;
+}) {
+  const { agents, terminals, commands } = inactiveProjectItems(
+    snapshot,
+    filterLower,
+    serverSnapshot,
+    onSelectTab
+  );
+  const matches = (label: string) => !filterLower || label.toLowerCase().includes(filterLower);
   return (
     <>
       {worktreeItems && worktreeItems.length > 0 && (

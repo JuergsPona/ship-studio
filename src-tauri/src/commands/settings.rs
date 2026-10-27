@@ -12,6 +12,54 @@ use tauri_plugin_dialog::DialogExt;
 const DEFAULT_APP_ICON: &str = "brand";
 const APP_ICON_IDS: &[&str] = &["brand", "dark", "light"];
 
+fn normalized_theme_preference(value: Option<&str>) -> &'static str {
+    match value {
+        Some("light") => "light",
+        Some("dark") => "dark",
+        _ => "system",
+    }
+}
+
+fn validate_theme_preference(preference: &str) -> Result<(), CommandError> {
+    if matches!(preference, "light" | "dark" | "system") {
+        Ok(())
+    } else {
+        Err(CommandError::Validation {
+            field: "preference".to_string(),
+            reason: "Choose one of light, dark, or system".to_string(),
+        })
+    }
+}
+
+/// Get app appearance; an unset preference follows the operating system.
+#[tauri::command]
+#[tracing::instrument]
+pub fn get_theme_preference() -> Result<String, CommandError> {
+    Ok(normalized_theme_preference(read_app_state().theme_preference.as_deref()).to_string())
+}
+
+/// Apply native chrome without changing the independently selected Dock icon.
+pub fn apply_theme_preference(app: &AppHandle, preference: &str) {
+    app.set_theme(match preference {
+        "light" => Some(tauri::Theme::Light),
+        "dark" => Some(tauri::Theme::Dark),
+        _ => None,
+    });
+}
+
+/// Save before broadcasting, so all app windows reflect only persisted choices.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub fn set_theme_preference(app: AppHandle, preference: String) -> Result<(), CommandError> {
+    validate_theme_preference(&preference)?;
+    crate::commands::setup::update_app_state(|state| {
+        state.theme_preference = Some(preference.clone());
+    })?;
+    apply_theme_preference(&app, &preference);
+    let _ = app.emit("theme-preference-changed", &preference);
+    Ok(())
+}
+
 /// Whether opening a project or showing Preview may start its servers.
 #[tauri::command]
 #[tracing::instrument]
@@ -465,8 +513,35 @@ pub async fn pick_projects_root(app: AppHandle) -> Result<Option<String>, Comman
 
 #[cfg(test)]
 mod tests {
-    use super::{normalized_app_icon, validate_app_icon};
+    use super::{
+        normalized_app_icon, normalized_theme_preference, validate_app_icon,
+        validate_theme_preference,
+    };
     use crate::types::AppState;
+
+    #[test]
+    fn theme_defaults_to_system_and_rejects_unknown_choices() {
+        assert_eq!(normalized_theme_preference(None), "system");
+        assert_eq!(normalized_theme_preference(Some("unknown")), "system");
+        assert!(validate_theme_preference("brand").is_err());
+        for preference in ["light", "dark", "system"] {
+            assert!(validate_theme_preference(preference).is_ok());
+            assert_eq!(normalized_theme_preference(Some(preference)), preference);
+        }
+    }
+
+    #[test]
+    fn theme_round_trips_independently_of_the_app_icon() {
+        let mut state: AppState = serde_json::from_str(r#"{"appIcon":"dark"}"#).unwrap();
+        assert_eq!(state.theme_preference, None);
+        for preference in ["light", "dark", "system"] {
+            state.theme_preference = Some(preference.to_string());
+            let json = serde_json::to_string(&state).unwrap();
+            let restored: AppState = serde_json::from_str(&json).unwrap();
+            assert_eq!(restored.theme_preference.as_deref(), Some(preference));
+            assert_eq!(restored.app_icon.as_deref(), Some("dark"));
+        }
+    }
 
     #[test]
     fn automatic_startup_is_opt_in_and_round_trips() {

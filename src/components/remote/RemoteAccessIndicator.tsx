@@ -20,6 +20,8 @@ import { useOpenModal } from '../../contexts/ModalContext';
 import { useAsyncState } from '../../hooks/useAsyncState';
 import { usePolling } from '../../hooks/usePolling';
 import { agoText, getRemoteAccessBrief, type RemoteAccessBrief } from '../../lib/remoteAccess';
+import { NativeSidebarBuilder } from '../../lib/nativeSidebar';
+import { useNativeSidebarPart } from '../../hooks/useNativeSidebarPart';
 
 type Tone = 'off' | 'ok' | 'warn' | 'down';
 
@@ -74,6 +76,32 @@ export function RemoteAccessIndicator({ isSidebarHidden }: { isSidebarHidden: bo
   );
 
   const state = brief.data ? indicatorState(brief.data, now) : null;
+  const native = new NativeSidebarBuilder();
+  useNativeSidebarPart(
+    'remote-access',
+    state
+      ? {
+          part: {
+            placement: 'footer',
+            nodes: [
+              {
+                id: 'remote-access',
+                title: state.line,
+                tone:
+                  state.tone === 'down' ? 'error' : state.tone === 'warn' ? 'warning' : 'normal',
+                action: native.action(
+                  'remote-access.open',
+                  state.detail,
+                  () => openModal('remoteAccess'),
+                  'network'
+                ),
+              },
+            ],
+          },
+          actions: native.actions,
+        }
+      : null
+  );
   if (!state) return null;
 
   return (

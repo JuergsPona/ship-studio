@@ -24,6 +24,7 @@ import { reportError } from './lib/errorReporting';
 import { classifyRejection, describeRejectionReason } from './lib/globalErrorFilters';
 import { createScrollbarScanner, rootsFromMutations } from './lib/scrollbarScan';
 import { isExpectedCommandError } from './lib/errors';
+import { initializeTheme } from './lib/theme';
 import { OverlayScrollbars } from 'overlayscrollbars';
 import 'overlayscrollbars/overlayscrollbars.css';
 
@@ -270,6 +271,9 @@ requestAnimationFrame(() => {
 // Parse project path from URL if present (for project windows)
 const urlParams = new URLSearchParams(window.location.search);
 const initialProjectPath = urlParams.get('project');
+
+const stopTheme = initializeTheme();
+if (import.meta.hot) import.meta.hot.dispose(stopTheme);
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement, {
   // Only report errors that escape ErrorBoundary. Caught errors already flow

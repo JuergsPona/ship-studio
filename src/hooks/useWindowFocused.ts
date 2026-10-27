@@ -18,9 +18,10 @@
  */
 
 import { useEffect, useState } from 'react';
+import { getNativeSidebarFocus, subscribeNativeSidebarFocus } from '../lib/nativeSidebarFocus';
 
 export function isWindowFocused(): boolean {
-  return document.visibilityState === 'visible' && document.hasFocus();
+  return document.visibilityState === 'visible' && (getNativeSidebarFocus() ?? document.hasFocus());
 }
 
 export function useWindowFocused(): boolean {
@@ -28,12 +29,14 @@ export function useWindowFocused(): boolean {
 
   useEffect(() => {
     const update = () => setFocused(isWindowFocused());
+    const unsubscribeNative = subscribeNativeSidebarFocus(update);
     document.addEventListener('visibilitychange', update);
     window.addEventListener('focus', update);
     window.addEventListener('blur', update);
     // The state can have moved between the initial render and this effect.
     update();
     return () => {
+      unsubscribeNative();
       document.removeEventListener('visibilitychange', update);
       window.removeEventListener('focus', update);
       window.removeEventListener('blur', update);
