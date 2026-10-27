@@ -37,15 +37,14 @@ import { useState, useRef, useCallback, useMemo } from 'react';
 import {
   startDevServer,
   DevServerHandle,
-  getGenericDevCommand,
   getPackageDevScriptCommand,
   setCustomDevCommand as setCustomDevCommandApi,
   getWorkspaceSubpath,
   resolveWorkspacePath,
-  checkDependenciesInstalled,
-  getForceStaticServe,
 } from '../lib/project';
-import { detectPackageManager } from '../lib/github';
+import { prepareProjectServer } from '../lib/projectServerPreparation';
+import { getAutoStartProjectServers } from '../lib/settings';
+import { consumeMobilePreviewStart, requestMobilePreviewStart } from '../lib/mobile';
 
 /** Resolve the effective dev-server cwd for a project, logging any backend
  *  failure instead of silently swallowing it. A stale Tauri build (missing
@@ -64,7 +63,6 @@ async function resolveDevServerCwd(projectPath: string): Promise<string> {
   }
 }
 import {
-  detectProjectType,
   startStaticServer,
   stopStaticServer,
   isMobileProjectType,
@@ -123,6 +121,7 @@ export interface ProjectDevServerSnapshot {
 
 /** All the per-project server state we track in the map. */
 interface ProjectServerState {
+  mobilePreviewRequestId: number;
   handle: DevServerHandle | null;
   serverInstanceId: number | null;
   /** Invalidates in-flight detection/spawn work when Stop is clicked. */
@@ -210,6 +209,7 @@ function safePtyResize(handle: DevServerHandle | null, cols: number, rows: numbe
 
 function makeState(): ProjectServerState {
   return {
+    mobilePreviewRequestId: 0,
     handle: null,
     serverInstanceId: null,
     startGeneration: 0,
@@ -641,11 +641,38 @@ export function useDevServer(currentProjectPath: string | null) {
 
   // ───────────── Lifecycle ─────────────
 
+  const prepareServerForProject = useCallback(
+    async (projectPath: string): Promise<ProjectType> => {
+      await stopPromisesRef.current.get(projectPath);
+      const s = getOrCreateState(projectPath);
+      if (s.starting || s.handle || s.staticStarted) return s.type;
+      const generation = ++s.startGeneration;
+      const prepared = await prepareProjectServer(projectPath).catch((error: unknown) => {
+        if (statesRef.current.get(projectPath) === s && s.startGeneration === generation) {
+          s.projectTypeResolved = true;
+          bump();
+        }
+        throw error;
+      });
+      if (statesRef.current.get(projectPath) !== s || s.startGeneration !== generation) {
+        return s.type;
+      }
+      s.type = prepared.type;
+      s.projectTypeResolved = true;
+      s.customCommand = prepared.custom;
+      s.packageDevCommand = prepared.packageScript;
+      s.needsInstall = prepared.needsInstall;
+      bump();
+      return prepared.type;
+    },
+    [bump, getOrCreateState]
+  );
+
   const startServerForProject = useCallback(
     async (projectPath: string, projectName: string, port: number, windowLabel: string) => {
       await stopPromisesRef.current.get(projectPath);
       const s = getOrCreateState(projectPath);
-      if (s.starting || s.handle) return s.type;
+      if (s.starting || s.handle || s.staticStarted) return s.type;
       const generation = ++s.startGeneration;
       const isCurrentStart = () =>
         statesRef.current.get(projectPath) === s && s.startGeneration === generation;
@@ -661,114 +688,37 @@ export function useDevServer(currentProjectPath: string | null) {
       // Preview pane doesn't keep reporting a stale "process stopped".
       s.unexpectedExit = null;
 
-      // For monorepo projects, dev server / project-type detection should run
-      // against the picked workspace subdir. Git/PR ops still use the repo root.
-      const cwd = await resolveDevServerCwd(projectPath);
-      if (!isCurrentStart()) return s.type;
-      if (cwd !== projectPath) {
-        logger.info('[OpenProject] Using workspace subpath as dev server cwd', {
-          projectPath,
-          cwd,
-        });
-      }
-
-      // Detect project type FIRST so `isWebProject` is correct even when we
-      // defer the dev server (the Preview pane gates on projectType ∉ {generic,
-      // unknown} and the install CTA renders inside the Preview pane).
-      let detectedType: ProjectType = 'unknown';
+      let prepared: Awaited<ReturnType<typeof prepareProjectServer>>;
       try {
-        detectedType = await detectProjectType(projectPath);
-      } catch {
-        logger.warn('[OpenProject] Failed to detect project type, defaulting to unknown');
+        prepared = await prepareProjectServer(projectPath);
+      } catch (error) {
+        if (isCurrentStart()) {
+          s.starting = false;
+          s.projectTypeResolved = true;
+          bump();
+          bumpServerLifecycle();
+        }
+        throw error;
       }
       if (!isCurrentStart()) return s.type;
-
-      // A plain static site that carries a root `package.json` only for build
-      // tooling (PostCSS, autoprefixer, a CSS minifier) is detected as `generic`
-      // and would start no server; a site whose HTML lives somewhere detection
-      // doesn't look is `unknown`. The user can opt into static serving via
-      // `.shipstudio/project.json` → `force_static_serve`; when set, treat it as
-      // a static-HTML project so it serves over the static server and the
-      // Preview pane renders (it gates out `generic`/`unknown`). Never applied
-      // to detected web frameworks — the override exists only for the two
-      // "no server would start" outcomes.
-      let forceStatic = false;
-      try {
-        forceStatic = await getForceStaticServe(projectPath);
-      } catch {
-        /* default: respect detection */
-      }
-      if (!isCurrentStart()) return s.type;
-      if (forceStatic && (detectedType === 'generic' || detectedType === 'unknown')) {
-        logger.info('[OpenProject] force_static_serve set; serving as static HTML', {
-          projectPath,
-          detectedType,
-        });
-        detectedType = 'statichtml';
-      }
-
+      const { cwd, type: detectedType, hasPackageJson, cwdHasPackageJson } = prepared;
       s.type = detectedType;
       s.projectTypeResolved = true;
+      s.customCommand = prepared.custom;
+      s.packageDevCommand = prepared.packageScript;
+      s.needsInstall = prepared.needsInstall;
       bump();
-
-      // Now verify `node_modules` exists. If not, the dev server would fail
-      // with "Cannot find module 'next'" — surface a Preview-pane install CTA
-      // instead. Cleared by `clearNeedsInstall` after install succeeds.
-      // Shopify themes are exempt: `shopify theme dev` needs no npm install,
-      // and a theme's optional package.json (Tailwind tooling, or one an
-      // agent added) must not block the preview behind an install gate.
-      // Whether the project has a package.json at all — a framework detected
-      // via its config file alone can't run a dev script (issue #593).
-      // null = unknown (dependency check failed or was exempt).
-      let hasPackageJson: boolean | null = null;
-      // Same, but at the resolved dev-server cwd (workspace subpath for
-      // monorepos). The root-OR-workspace flag above is right for install
-      // gating but wrong for "will the dev spawn at cwd find a package.json"
-      // (issue #656).
-      let cwdHasPackageJson: boolean | null = null;
-      try {
-        // Shopify themes and force-static projects don't need an npm install to
-        // preview: the theme runs via `shopify theme dev`, and a force-static
-        // site is served straight off disk regardless of its build tooling.
-        const depStatus =
-          detectedType === 'shopifytheme' || forceStatic
-            ? { installed: true, hasPackageJson: false, workspaceHasPackageJson: false }
-            : await checkDependenciesInstalled(projectPath);
-        if (!isCurrentStart()) return s.type;
-        if (detectedType !== 'shopifytheme' && !forceStatic) {
-          hasPackageJson = depStatus.hasPackageJson;
-          // Older backends predate the field; keep null (= unknown) then.
-          cwdHasPackageJson = depStatus.workspaceHasPackageJson ?? null;
-        }
-        if (!depStatus.installed && depStatus.hasPackageJson) {
-          const packageManager = await detectPackageManager(projectPath).catch((err) => {
-            logger.warn(
-              '[OpenProject] detectPackageManager failed; falling back to npm. This will be wrong for pnpm/yarn projects.',
-              { error: formatCommandError(asCommandError(err)) }
-            );
-            return 'npm';
-          });
-          if (!isCurrentStart()) return s.type;
-          s.needsInstall = { packageManager };
+      if (s.needsInstall) {
+        if (isMobileProjectType(detectedType)) {
+          requestMobilePreviewStart(projectPath);
+          s.mobilePreviewRequestId += 1;
           bump();
-          logger.info('[OpenProject] Dependencies missing; deferring dev server', {
-            projectPath,
-            packageManager,
-            projectType: detectedType,
-          });
-          s.starting = false;
-          s.inFlightStart = null;
-          // The sidebar row is memoized on the lifecycle version; without
-          // this bump it keeps showing "starting" next to the install CTA.
-          bumpServerLifecycle();
-          return detectedType;
         }
-      } catch (err) {
-        logger.warn('[OpenProject] Dependency check failed; attempting dev server anyway', {
-          error: formatCommandError(asCommandError(err)),
-        });
+        s.starting = false;
+        s.inFlightStart = null;
+        bumpServerLifecycle();
+        return detectedType;
       }
-      s.needsInstall = null;
 
       logger.info(`[OpenProject] Detected project type: ${detectedType}`);
 
@@ -777,7 +727,7 @@ export function useDevServer(currentProjectPath: string | null) {
         // own `dev` script (a pnpm/Turborepo root's `turbo run dev`, issue
         // #1105). A generic project with neither (script collections, Rust
         // CLIs, …) still starts nothing and keeps the Preview hidden.
-        const { custom, packageScript } = await getGenericDevCommand(projectPath, cwd);
+        const { custom, packageScript } = prepared;
         if (!isCurrentStart()) return s.type;
         s.customCommand = custom;
         s.packageDevCommand = packageScript;
@@ -862,6 +812,9 @@ export function useDevServer(currentProjectPath: string | null) {
           logger.error('Failed to start static server', { error });
         }
       } else if (isMobileProjectType(detectedType)) {
+        requestMobilePreviewStart(projectPath);
+        s.mobilePreviewRequestId += 1;
+        bump();
         // Native mobile apps (React Native / Expo, Flutter) aren't served over
         // a local web port, so there's no web dev server to start. The user
         // runs `expo start` / `flutter run` in the terminal; the (forthcoming)
@@ -1042,6 +995,8 @@ export function useDevServer(currentProjectPath: string | null) {
       // Invalidate pending detection/spawn work synchronously. A restart for
       // this path waits on the stop promise below, so it cannot race teardown.
       s.startGeneration += 1;
+      consumeMobilePreviewStart(targetPath);
+      s.mobilePreviewRequestId = 0;
       s.starting = false;
       const inFlightStart = s.inFlightStart;
       s.inFlightStart = null;
@@ -1182,6 +1137,13 @@ export function useDevServer(currentProjectPath: string | null) {
       await stopPromisesRef.current.get(projectPath);
       const s = getOrCreateState(projectPath);
       if (s.starting) {
+        setIsRestartingDevServer(false);
+        return;
+      }
+      if (isMobileProjectType(s.type)) {
+        requestMobilePreviewStart(projectPath);
+        s.mobilePreviewRequestId += 1;
+        bump();
         setIsRestartingDevServer(false);
         return;
       }
@@ -1452,6 +1414,15 @@ export function useDevServer(currentProjectPath: string | null) {
       }
       const commandToRun = command ?? (s.type === 'generic' ? s.packageDevCommand : null);
 
+      if (!handleToStop && !(await getAutoStartProjectServers())) {
+        if (isCurrentSave()) {
+          s.starting = false;
+          bumpServerLifecycle();
+        }
+        return;
+      }
+      if (!isCurrentSave()) return;
+
       if (commandToRun) {
         try {
           s.unexpectedExit = null;
@@ -1515,6 +1486,7 @@ export function useDevServer(currentProjectPath: string | null) {
     setDevServerPort,
     projectType,
     projectTypeResolved,
+    mobilePreviewRequestId: activeState?.mobilePreviewRequestId ?? 0,
     setProjectType,
     isRestartingDevServer,
     customDevCommand,
@@ -1530,6 +1502,7 @@ export function useDevServer(currentProjectPath: string | null) {
     handleHealthOutput,
     handleRestartDevServer,
     startServerForProject,
+    prepareServerForProject,
     serverLifecycleVersion,
     stopServer,
     stopAllServersExcept,

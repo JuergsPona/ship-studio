@@ -23,6 +23,7 @@ import { PluginSlot } from '../plugins/PluginSlot';
 import { Preview, type InspectTab, type PreviewHandle } from '../preview/Preview';
 import { DeviceMirror } from '../preview/DeviceMirror';
 import { ShopifySetup } from '../shopify/ShopifySetup';
+import { ProjectServerStopped } from '../preview/ProjectServerStopped';
 
 /** Props for the web preview, mobile mirror, and code-side workspace pane. */
 export interface WorkspacePreviewPaneProps {
@@ -35,6 +36,9 @@ export interface WorkspacePreviewPaneProps {
   setWorkspaceTab: (tab: 'preview' | 'code' | 'branches' | 'prs') => void;
   hasPreview: boolean;
   projectTypeResolved: boolean;
+  mobilePreviewRequestId: number;
+  serverStopped: boolean;
+  handleStartDevServer: () => Promise<void>;
   previewConnectionEnabled: boolean;
   serverAlreadyRunning: boolean;
   serverInstanceId: number | null;
@@ -111,6 +115,9 @@ export function WorkspacePreviewPane(props: WorkspacePreviewPaneProps) {
     setWorkspaceTab,
     hasPreview,
     projectTypeResolved,
+    mobilePreviewRequestId,
+    serverStopped,
+    handleStartDevServer,
     previewConnectionEnabled,
     serverAlreadyRunning,
     serverInstanceId,
@@ -181,6 +188,7 @@ export function WorkspacePreviewPane(props: WorkspacePreviewPaneProps) {
   } = branchTabs;
   const previewSlotPlugins = getSlotPlugins('preview');
   const previewSurfaceVisible = isWebProject || !projectTypeResolved;
+  const showStopped = projectTypeResolved && serverStopped && !needsInstall;
 
   return (
     <div className="preview-pane">
@@ -200,7 +208,10 @@ export function WorkspacePreviewPane(props: WorkspacePreviewPaneProps) {
           onConnected={shopify.connect}
         />
       )}
-      {workspaceTab === 'preview' && previewSurfaceVisible && !shopify.showGate && (
+      {workspaceTab === 'preview' && previewSurfaceVisible && !shopify.showGate && showStopped && (
+        <ProjectServerStopped onStart={handleStartDevServer} />
+      )}
+      {workspaceTab === 'preview' && previewSurfaceVisible && !shopify.showGate && !showStopped && (
         <div style={{ flex: 1, display: 'flex' }}>
           <Preview
             key={`${currentProject.path}-${devServerPort}`}
@@ -271,12 +282,16 @@ export function WorkspacePreviewPane(props: WorkspacePreviewPaneProps) {
       )}
       {workspaceTab === 'preview' && mobilePreviewAvailable && (
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-          <DeviceMirror
-            key={currentProject.path}
-            projectName={currentProject.name}
-            projectPath={currentProject.path}
-            onSendToAgent={sendToClaude}
-          />
+          {mobilePreviewRequestId === 0 ? (
+            <ProjectServerStopped onStart={handleStartDevServer} />
+          ) : (
+            <DeviceMirror
+              key={`${currentProject.path}:${mobilePreviewRequestId}`}
+              projectName={currentProject.name}
+              projectPath={currentProject.path}
+              onSendToAgent={sendToClaude}
+            />
+          )}
         </div>
       )}
       {workspaceTab === 'code' && (

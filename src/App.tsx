@@ -25,6 +25,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getAutoStartProjectServers } from './lib/settings';
 import { useTerminalManagement } from './hooks/useTerminalManagement';
 import { usePlugins } from './hooks/usePlugins';
 import { useIntegrationStatus } from './hooks/useIntegrationStatus';
@@ -247,6 +248,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     setDevServerPort,
     projectType,
     projectTypeResolved,
+    mobilePreviewRequestId,
     isRestartingDevServer,
     devCommands,
     devServerOutputRef,
@@ -256,6 +258,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     handleHealthOutput,
     handleRestartDevServer: restartDevServer,
     startServerForProject,
+    prepareServerForProject,
     serverLifecycleVersion,
     stopServer,
     stopAllServersExcept,
@@ -475,6 +478,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     setView,
     setDevServerPort,
     startServerForProject,
+    prepareServerForProject,
     isServerRunning,
     isServerStarting,
     restartDevServer,
@@ -507,7 +511,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     currentProjectPath: currentProject?.path ?? null,
     serverLifecycleVersion,
     stopAllServersExcept,
-    startCurrentDevServer: handleStartDevServer,
+    startCurrentDevServer: () => handleStartDevServer(true),
   });
 
   // Save port handler: persist, update state, close modal, restart dev server
@@ -519,8 +523,12 @@ function AppContents({ initialProjectPath }: AppProps) {
         setDevServerPort(newPort);
         // ProjectSettingsModal closes itself via useModal('projectSettings').close()
         // when its save handler returns successfully.
-        await restartDevServer(currentProject.path, newPort);
-        showToast('Port updated and server restarted', 'success');
+        if (isServerRunning(currentProject.path) || (await getAutoStartProjectServers())) {
+          await restartDevServer(currentProject.path, newPort);
+          showToast('Port updated and server restarted', 'success');
+        } else {
+          showToast('Port updated', 'success');
+        }
       } catch (err) {
         showToast(
           `Couldn't set dev server to port ${newPort}: ${formatCommandError(asCommandError(err))}`,
@@ -528,7 +536,7 @@ function AppContents({ initialProjectPath }: AppProps) {
         );
       }
     },
-    [currentProject, restartDevServer, showToast, setDevServerPort]
+    [currentProject, restartDevServer, showToast, setDevServerPort, isServerRunning]
   );
 
   const {
@@ -855,6 +863,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       devServerPort,
       projectType,
       projectTypeResolved,
+      mobilePreviewRequestId,
       isRestartingDevServer,
       devCommands,
       devServerOutput: devServerOutputRef.current,
@@ -877,6 +886,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       devServerPort,
       projectType,
       projectTypeResolved,
+      mobilePreviewRequestId,
       isRestartingDevServer,
       devCommands,
       devServerOutputRef,

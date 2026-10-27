@@ -67,13 +67,10 @@ vi.mock('../../hooks/useDashboardVisibility', () => ({
   useDashboardVisibility: () => ({
     dashboardHeaderHidden: true,
     calendarHidden: true,
-    slackCtaHidden: true,
     hideDashboardHeader: vi.fn(),
     hideCalendar: vi.fn(),
-    hideSlackCta: vi.fn(),
     setDashboardHeaderHidden: vi.fn(),
     setCalendarHidden: vi.fn(),
-    setSlackCtaHidden: vi.fn(),
   }),
 }));
 vi.mock('../../hooks/useProjectViewModeCommands', () => ({

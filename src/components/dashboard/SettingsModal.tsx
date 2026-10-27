@@ -22,8 +22,6 @@ import {
   type DashboardVisibilityChangedDetail,
   getCalendarHidden,
   setCalendarHidden,
-  getSlackCtaHidden,
-  setSlackCtaHidden,
   getDashboardHeaderHidden,
   setDashboardHeaderHidden,
   APP_ICON_OPTIONS,
@@ -46,6 +44,7 @@ import {
   getSpotifyWidgetEnabled,
   setSpotifyWidgetEnabled,
   setKeepDevServersRunning,
+  setAutoStartProjectServers,
   SPOTIFY_WIDGET_ENABLED_CHANGED_EVENT,
   getProjectsRoot,
   isCustomProjectsRoot,
@@ -61,6 +60,7 @@ import { MoveToFolderIcon } from '@/components/icons';
 import { useActiveAccount } from '../../hooks/useActiveAccount';
 import { useOpenModal } from '../../contexts/ModalContext';
 import { useKeepDevServersRunning } from '../../hooks/useKeepDevServersRunning';
+import { useAutoStartProjectServers } from '../../hooks/useAutoStartProjectServers';
 
 const errMsg = (err: unknown) => formatCommandError(asCommandError(err));
 
@@ -69,7 +69,6 @@ interface SettingsModalProps {
   onClose: () => void;
   onDashboardHeaderHiddenChange?: (hidden: boolean) => void;
   onCalendarHiddenChange?: (hidden: boolean) => void;
-  onSlackCtaHiddenChange?: (hidden: boolean) => void;
   /** Called after the projects folder changes (and after a move) so the
    *  dashboard can re-list projects. */
   onProjectsRootChanged?: () => void;
@@ -89,7 +88,6 @@ export function SettingsModal({
   onClose,
   onDashboardHeaderHiddenChange,
   onCalendarHiddenChange,
-  onSlackCtaHiddenChange,
   onProjectsRootChanged,
 }: SettingsModalProps) {
   const { showToast } = useOptionalToast();
@@ -98,11 +96,30 @@ export function SettingsModal({
   const { activeAccount, accounts } = useActiveAccount();
   const multipleWorkspaces = accounts.length > 1;
   const keepDevServersRunning = useKeepDevServersRunning() ?? true;
+  const autoStartProjectServers = useAutoStartProjectServers();
+  const [savingAutoStart, setSavingAutoStart] = useState(false);
+
+  const handleAutoStartToggle = async () => {
+    if (autoStartProjectServers === null || savingAutoStart) return;
+    setSavingAutoStart(true);
+    try {
+      const enabled = !autoStartProjectServers;
+      await setAutoStartProjectServers(enabled);
+      void trackEvent('setting_changed', {
+        setting: 'auto_start_project_servers',
+        value: enabled,
+        $screen_name: 'Settings',
+      });
+    } catch (error) {
+      showToast(errMsg(error), 'error');
+    } finally {
+      setSavingAutoStart(false);
+    }
+  };
 
   const [analyticsEnabled, setLocalAnalyticsEnabled] = useState(true);
   const [dashboardHeaderVisible, setLocalDashboardHeaderVisible] = useState(true);
   const [calendarVisible, setLocalCalendarVisible] = useState(true);
-  const [slackCtaVisible, setLocalSlackCtaVisible] = useState(true);
   const [appIcon, setLocalAppIcon] = useState<AppIcon>('brand');
   const [terminalGpuEnabled, setLocalTerminalGpuEnabled] = useState(true);
   const [compactWorkspaceToolbarEnabled, setLocalCompactWorkspaceToolbarEnabled] = useState(false);
@@ -129,7 +146,6 @@ export function SettingsModal({
         enabled,
         headerHidden,
         calHidden,
-        slackHidden,
         selectedAppIcon,
         gpuEnabled,
         compactToolbarEnabled,
@@ -144,7 +160,6 @@ export function SettingsModal({
         getAnalyticsEnabled(),
         getDashboardHeaderHidden(),
         getCalendarHidden(),
-        getSlackCtaHidden(),
         getAppIcon(),
         getTerminalGpuEnabled(),
         getCompactWorkspaceToolbarEnabled(),
@@ -160,7 +175,6 @@ export function SettingsModal({
         setLocalAnalyticsEnabled(enabled);
         setLocalDashboardHeaderVisible(!headerHidden);
         setLocalCalendarVisible(!calHidden);
-        setLocalSlackCtaVisible(!slackHidden);
         setLocalAppIcon(selectedAppIcon);
         setLocalTerminalGpuEnabled(gpuEnabled);
         setLocalCompactWorkspaceToolbarEnabled(compactToolbarEnabled);
@@ -193,7 +207,6 @@ export function SettingsModal({
       if (!detail) return;
       if (detail.key === 'dashboardHeader') setLocalDashboardHeaderVisible(!detail.hidden);
       if (detail.key === 'calendar') setLocalCalendarVisible(!detail.hidden);
-      if (detail.key === 'slackCta') setLocalSlackCtaVisible(!detail.hidden);
     };
 
     window.addEventListener(DASHBOARD_VISIBILITY_CHANGED_EVENT, handleVisibilityChanged);
@@ -266,13 +279,6 @@ export function SettingsModal({
     });
     onCalendarHiddenChange?.(!newVisible);
   }, [calendarVisible, onCalendarHiddenChange]);
-
-  const handleSlackCtaToggle = useCallback(() => {
-    const newVisible = !slackCtaVisible;
-    setLocalSlackCtaVisible(newVisible);
-    void setSlackCtaHidden(!newVisible);
-    onSlackCtaHiddenChange?.(!newVisible);
-  }, [slackCtaVisible, onSlackCtaHiddenChange]);
 
   const handleAppIconChange = useCallback(
     async (nextIcon: AppIcon) => {
@@ -557,6 +563,27 @@ export function SettingsModal({
                 </div>
                 <div className="settings-row">
                   <div className="settings-row-info">
+                    <span className="settings-row-label">Start project servers automatically</span>
+                    <span className="settings-row-description">
+                      Start project servers when opening projects or showing previews. When off, use
+                      Start server.
+                    </span>
+                  </div>
+                  <button
+                    className={`settings-toggle ${autoStartProjectServers === true ? 'on' : 'off'}`}
+                    onClick={() => void handleAutoStartToggle()}
+                    disabled={loading || autoStartProjectServers === null || savingAutoStart}
+                    role="switch"
+                    aria-label="Start project servers automatically"
+                    aria-checked={autoStartProjectServers === true}
+                  >
+                    <span className="settings-toggle-track">
+                      <span className="settings-toggle-thumb" />
+                    </span>
+                  </button>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-info">
                     <span className="settings-row-label">Terminal GPU acceleration</span>
                     <span className="settings-row-description">
                       Use GPU rendering for faster, smoother terminals. Turn off if agent output
@@ -719,26 +746,6 @@ export function SettingsModal({
                       role="switch"
                       aria-label="Show activity calendar"
                       aria-checked={calendarVisible}
-                    >
-                      <span className="settings-toggle-track">
-                        <span className="settings-toggle-thumb" />
-                      </span>
-                    </button>
-                  </div>
-                  <div className="settings-row">
-                    <div className="settings-row-info">
-                      <span className="settings-row-label">Show community banner</span>
-                      <span className="settings-row-description">
-                        Show the Slack community invite on the dashboard.
-                      </span>
-                    </div>
-                    <button
-                      className={`settings-toggle ${slackCtaVisible ? 'on' : 'off'}`}
-                      onClick={handleSlackCtaToggle}
-                      disabled={loading}
-                      role="switch"
-                      aria-label="Show community banner"
-                      aria-checked={slackCtaVisible}
                     >
                       <span className="settings-toggle-track">
                         <span className="settings-toggle-thumb" />

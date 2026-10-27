@@ -48,6 +48,8 @@ interface BuildTerminalProps {
   sessionId: string;
   /** The launch command to run (from `getSimulatorLaunchCommand`). */
   command: string;
+  /** False for automatic reattachment: replay/attach without spawning a build. */
+  allowSpawn?: boolean;
   /** Working directory for the build (the project path). */
   cwd: string;
   /** Focus the terminal when this becomes the active view. */
@@ -69,6 +71,7 @@ const BUILD_SHELL = '/bin/zsh';
 export function BuildTerminal({
   sessionId,
   command,
+  allowSpawn = true,
   cwd,
   isActive,
   onExit,
@@ -163,24 +166,28 @@ export function BuildTerminal({
     // chunks the snapshot already covers, so nothing double-writes either.
     void (async () => {
       try {
-        await openPtySession({
-          sessionId,
-          command: BUILD_SHELL,
-          args: ['-lic', command],
-          cwd,
-          env: {},
-          // Clamp: spawning before layout settles can report 0-size, and a
-          // 0-size ConPTY produces no output at all (the backend clamps
-          // too; this keeps xterm and the PTY in agreement).
-          cols: Math.max(term.cols, 2),
-          rows: Math.max(term.rows, 2),
-          projectPath: cwd,
-        });
-        sessionOpened = true;
+        if (allowSpawn) {
+          await openPtySession({
+            sessionId,
+            command: BUILD_SHELL,
+            args: ['-lic', command],
+            cwd,
+            env: {},
+            // Clamp until layout settles so the PTY can render output.
+            cols: Math.max(term.cols, 2),
+            rows: Math.max(term.rows, 2),
+            projectPath: cwd,
+          });
+          sessionOpened = true;
+        } else {
+          sessionOpened = (await attachPtySession(sessionId)).alive;
+        }
         if (cancelled) return;
         // Layout may have settled while the open was in flight (those resize
         // callbacks were skipped) — sync the PTY to the current size once.
-        resizePtySessionLogged(sessionId, Math.max(term.cols, 2), Math.max(term.rows, 2));
+        if (sessionOpened) {
+          resizePtySessionLogged(sessionId, Math.max(term.cols, 2), Math.max(term.rows, 2));
+        }
 
         // A build is the single most likely thing in the app to outrun
         // xterm's parser — a verbose bundler can emit megabytes in a second.
@@ -274,7 +281,7 @@ export function BuildTerminal({
       // Intentionally NOT killing the pty_session — the backend owns its
       // lifecycle so the build survives this unmount (e.g. a tab switch).
     };
-  }, [sessionId, command, cwd]);
+  }, [sessionId, command, cwd, allowSpawn]);
 
   // Focus when this becomes the active view (separate so it doesn't re-open).
   useEffect(() => {

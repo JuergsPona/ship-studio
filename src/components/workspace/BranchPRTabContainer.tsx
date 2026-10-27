@@ -32,7 +32,7 @@ export interface BranchPRTabContainerProps {
   currentBranch: string | null;
   projectPath: string;
   handleBranchSwitch: (branchName: string) => Promise<void>;
-  handleRestartDevServer: () => Promise<void>;
+  handleRestartDevServer: (automatic?: boolean) => Promise<void>;
   setShowSubmitReview: (branch: string | null) => void;
   fetchBranchInfo: (projectPath: string) => Promise<void>;
   handleResolveConflicts: (headBranch?: string, baseBranch?: string) => Promise<void>;
@@ -138,7 +138,7 @@ export function BranchPRTabContainer({
             onBranchSwitch={(branchName) => {
               void handleBranchSwitch(branchName);
               // TODO: Chain off handleBranchSwitch promise instead of arbitrary timeout — branch switch may take longer or shorter than 1.5s
-              setTimeout(() => void handleRestartDevServer(), 1500);
+              setTimeout(() => void handleRestartDevServer(true), 1500);
             }}
             onNavigateToBranches={() => setWorkspaceTab('branches')}
             onResolveConflicts={(headBranch, baseBranch) =>

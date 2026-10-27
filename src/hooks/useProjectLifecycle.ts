@@ -84,6 +84,7 @@ import { basename } from '../lib/paths';
 
 import type { AppView } from '../lib/types';
 import { preferredPortForProject } from '../lib/ports';
+import { getAutoStartProjectServers } from '../lib/settings';
 
 export interface UseProjectLifecycleParams {
   currentProject: Project | null;
@@ -92,6 +93,7 @@ export interface UseProjectLifecycleParams {
   setView: (view: AppView | ((prev: AppView) => AppView)) => void;
   // Dev server
   setDevServerPort: (port: number, projectPath?: string) => void;
+  prepareServerForProject: (projectPath: string) => Promise<ProjectType>;
   startServerForProject: (
     projectPath: string,
     projectName: string,
@@ -146,6 +148,7 @@ export function useProjectLifecycle({
   currentProjectPathRef,
   setView,
   setDevServerPort,
+  prepareServerForProject,
   startServerForProject,
   isServerRunning,
   isServerStarting = () => false,
@@ -408,6 +411,8 @@ export function useProjectLifecycle({
     const incomingAlreadyRunning = isServerRunning(project.path);
     const incomingStartInFlight = isServerStarting(project.path);
     const reuseIncomingServer = incomingAlreadyRunning || incomingStartInFlight;
+    const shouldAutoStart = await getAutoStartProjectServers();
+    if (navigationVersionRef.current !== navVersion) return;
 
     // Save the OUTGOING project's terminal state before we clobber it. This
     // is what lets switching A → B → A restore A's tab layout and resume
@@ -595,7 +600,7 @@ export function useProjectLifecycle({
     // own foot. Note: other active sessions keep their ports (Slice 1's
     // per-(window, project) reservation makes this safe).
     stepStart = performance.now();
-    if (!reuseIncomingServer) {
+    if (shouldAutoStart && !reuseIncomingServer) {
       const actualReservedPort = await invoke<number | null>('get_reserved_port_for_window', {
         windowLabel,
         projectPath: project.path,
@@ -614,7 +619,7 @@ export function useProjectLifecycle({
         `[OpenProject] Step 2: Kill reserved port ${actualReservedPort ?? 'none'} - ${Math.round(performance.now() - stepStart)}ms`
       );
     } else {
-      logger.info('[OpenProject] Step 2: Reusing live server — skipping port kill');
+      logger.info('[OpenProject] Step 2: No startup cleanup needed');
     }
 
     // NOTE: we intentionally no longer call `kill_window_pty` or
@@ -657,7 +662,7 @@ export function useProjectLifecycle({
     stepStart = performance.now();
     let port = preferredPort;
     try {
-      port = await findAndReservePort(project.path, preferredPort);
+      if (shouldAutoStart) port = await findAndReservePort(project.path, preferredPort);
     } catch (error) {
       // Recoverable: we fall back to the preferred port — not a bug report.
       logger.warn('Failed to find and reserve port, using default', { error });
@@ -665,7 +670,7 @@ export function useProjectLifecycle({
     // Kill any orphaned process on the newly reserved port — but only when
     // we aren't reusing a live server. Otherwise we'd kill the very
     // server we were about to reuse.
-    if (!reuseIncomingServer) {
+    if (shouldAutoStart && !reuseIncomingServer) {
       try {
         await Promise.race([
           invoke('kill_port', { port }),
@@ -675,10 +680,12 @@ export function useProjectLifecycle({
         // Ignore - port may already be free
       }
     }
-    logger.info(
-      `[OpenProject] Step 4: Reserved port ${port}${reuseIncomingServer ? ' (reuse)' : ' (killed orphans)'} - ${Math.round(performance.now() - stepStart)}ms`
-    );
-    setDevServerPort(port, project.path);
+    if (shouldAutoStart) {
+      logger.info(`[OpenProject] Step 4: Reserved port ${port}`);
+    } else {
+      logger.info('[OpenProject] Step 4: Automatic startup disabled; no port reserved');
+    }
+    if (shouldAutoStart) setDevServerPort(port, project.path);
 
     // Step 5 (fetch auto-accept) used to live here, but the value was
     // already applied synchronously from `project.auto_accept_mode`
@@ -720,13 +727,23 @@ export function useProjectLifecycle({
     // state in useDevServer is authoritative.
     stepStart = performance.now();
     let detectedType: ProjectType = 'unknown';
-    if (reuseIncomingServer) {
-      logger.info(`[OpenProject] Step 7: Reusing live pinned server for ${project.name}`);
-    } else {
-      detectedType = await startServerForProject(project.path, project.name, port, windowLabel);
-      logger.info(
-        `[OpenProject] Step 7: Start dev server - ${Math.round(performance.now() - stepStart)}ms`
-      );
+    try {
+      if (reuseIncomingServer) {
+        logger.info(`[OpenProject] Step 7: Reusing live pinned server for ${project.name}`);
+      } else if (shouldAutoStart && (await getAutoStartProjectServers())) {
+        if (navigationVersionRef.current !== navVersion) return;
+        detectedType = await startServerForProject(project.path, project.name, port, windowLabel);
+        logger.info(
+          `[OpenProject] Step 7: Start dev server - ${Math.round(performance.now() - stepStart)}ms`
+        );
+      } else {
+        detectedType = await prepareServerForProject(project.path);
+      }
+    } catch (error) {
+      if (navigationVersionRef.current !== navVersion) return;
+      openingProjectPathRef.current = null;
+      showToast(formatCommandError(asCommandError(error)), 'error');
+      return;
     }
 
     // Final check before committing to workspace view
@@ -876,12 +893,17 @@ export function useProjectLifecycle({
     clearNeedsInstall(cfg.projectPath);
     setInstallTerminalConfig(null);
     setInstallTerminalExited(false);
+    if (!(await getAutoStartProjectServers())) {
+      showToast('Dependencies installed — use Start server when ready', 'success');
+      return;
+    }
+    if (currentProjectPathRef.current !== cfg.projectPath) {
+      showToast('Dependencies installed', 'success');
+      return;
+    }
     showToast('Dependencies installed — starting dev server', 'success');
-    // restartDevServer is a no-op when nothing is currently running, but it
-    // kicks the full project-type-detect → spawn cycle which is exactly what
-    // we want here.
     try {
-      await restartDevServer(cfg.projectPath);
+      await handleStartDevServer(true);
     } catch (err) {
       const detail = formatCommandError(asCommandError(err));
       logger.error('[Install] Post-install dev server restart failed', { error: detail });
@@ -1060,8 +1082,19 @@ export function useProjectLifecycle({
     logger.info('[BackToProjects] Done');
   };
 
-  const handleRestartDevServer = async () => {
+  const handleRestartDevServer = async (automatic = false) => {
     if (!currentProject) return;
+    if (
+      automatic &&
+      !isServerRunning(currentProject.path) &&
+      !(await getAutoStartProjectServers())
+    ) {
+      return;
+    }
+    if (!isServerRunning(currentProject.path)) {
+      await handleStartDevServer(automatic);
+      return;
+    }
     await restartDevServer(currentProject.path);
   };
 
@@ -1074,9 +1107,11 @@ export function useProjectLifecycle({
    *  Mirrors handleSelectProject's port steps but skips all navigation and
    *  cleanup work that only applies to switching projects. No-op when a
    *  server for this project is already running or starting. */
-  const handleStartDevServer = async () => {
+  const handleStartDevServer = async (automatic = false) => {
     if (!currentProject || startingDevServerRef.current) return;
     const path = currentProject.path;
+    if (automatic && !(await getAutoStartProjectServers())) return;
+    if (currentProjectPathRef.current !== path || startingDevServerRef.current) return;
     if (isServerRunning(path) || isServerStarting(path)) return;
     startingDevServerRef.current = true;
     try {
@@ -1089,6 +1124,7 @@ export function useProjectLifecycle({
       } catch {
         // Fall back to derived default — metadata might not exist yet
       }
+      if (currentProjectPathRef.current !== path) return;
       let port = preferredPort;
       try {
         port = await findAndReservePort(path, preferredPort);
@@ -1096,6 +1132,7 @@ export function useProjectLifecycle({
         // Recoverable: we fall back to the preferred port — not a bug report.
         logger.warn('[StartDevServer] Failed to reserve port, using default', { error });
       }
+      if (currentProjectPathRef.current !== path) return;
       // Kill any orphaned process on the reserved port so the fresh spawn
       // can actually bind it.
       try {
@@ -1107,10 +1144,14 @@ export function useProjectLifecycle({
         // Ignore - port may already be free
       }
       setDevServerPort(port, path);
+      if (currentProjectPathRef.current !== path) return;
+      if (automatic && !(await getAutoStartProjectServers())) return;
+      if (currentProjectPathRef.current !== path) return;
       logger.info(`[StartDevServer] Starting dev server on port ${port} for ${path}`);
       await startServerForProject(path, currentProject.name, port, getWindowLabel());
     } catch (error) {
       logger.error('[StartDevServer] Failed to start dev server', { error });
+      showToast(formatCommandError(asCommandError(error)), 'error');
     } finally {
       startingDevServerRef.current = false;
     }

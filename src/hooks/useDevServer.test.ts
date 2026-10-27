@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useDevServer, filterProbeChunk, isProbeLine } from './useDevServer';
+import { getAutoStartProjectServers } from '../lib/settings';
+
+vi.mock('../lib/settings', () => ({
+  getAutoStartProjectServers: vi.fn().mockResolvedValue(true),
+}));
 
 // Mock external dependencies
 vi.mock('../lib/project', () => ({
@@ -53,6 +58,7 @@ vi.mock('../lib/logger', () => ({
 describe('useDevServer', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    vi.mocked(getAutoStartProjectServers).mockResolvedValue(true);
     // Clear call history, then re-apply defaults for mocks used by most tests.
     const project = await import('../lib/project');
     vi.mocked(project.startDevServer).mockResolvedValue({
@@ -248,6 +254,39 @@ describe('useDevServer', () => {
 
       expect(result.current.projectType).toBe('statichtml');
       expect(result.current.projectTypeResolved).toBe(true);
+    });
+  });
+
+  describe('preparation without startup', () => {
+    it.each(['nextjs', 'statichtml', 'generic', 'reactnative', 'shopifytheme'] as const)(
+      'resolves %s metadata without starting any server',
+      async (type) => {
+        const project = await import('../lib/project');
+        const staticServer = await import('../lib/static-server');
+        vi.mocked(staticServer.detectProjectType).mockResolvedValue(type);
+        const { result } = renderHook(() => useDevServer('/project'));
+        await act(async () => {
+          await result.current.prepareServerForProject('/project');
+        });
+        expect(result.current.projectType).toBe(type);
+        expect(result.current.projectTypeResolved).toBe(true);
+        expect(result.current.knownDevServerPort).toBeNull();
+        expect(result.current.mobilePreviewRequestId).toBe(0);
+        expect(project.startDevServer).not.toHaveBeenCalled();
+        expect(staticServer.startStaticServer).not.toHaveBeenCalled();
+      }
+    );
+
+    it('saving a command cannot launch a stopped server when automatic startup is off', async () => {
+      const project = await import('../lib/project');
+      vi.mocked(getAutoStartProjectServers).mockResolvedValue(false);
+      const { result } = renderHook(() => useDevServer('/project'));
+      await act(async () => {
+        await result.current.saveCustomDevCommand('/project', 'pnpm dev');
+      });
+      expect(result.current.customDevCommand).toBe('pnpm dev');
+      expect(project.startDevServer).not.toHaveBeenCalled();
+      expect(result.current.isServerStarting('/project')).toBe(false);
     });
   });
 

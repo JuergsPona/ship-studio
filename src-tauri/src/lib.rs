@@ -221,6 +221,7 @@ pub fn run() {
                         // `center_macos_traffic_lights` below performs the missing Y move.
                         .traffic_light_position(tauri::LogicalPosition::new(16.0, 32.0))
                         .hidden_title(true);
+                    main_builder = commands::window::with_macos_glass(main_builder);
                 }
 
                 let main_window = main_builder.build()?;
@@ -692,6 +693,8 @@ pub fn run() {
             commands::settings::get_spotify_widget_enabled,
             commands::settings::set_spotify_widget_enabled,
             commands::settings::get_keep_dev_servers_running,
+            commands::settings::get_auto_start_project_servers,
+            commands::settings::set_auto_start_project_servers,
             commands::settings::set_keep_dev_servers_running,
             commands::spotify::get_spotify_state,
             commands::spotify::spotify_control,

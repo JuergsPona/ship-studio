@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import {
   COMPACT_WORKSPACE_TOOLBAR_CHANGED_EVENT,
+  AUTO_START_PROJECT_SERVERS_LOCAL_CHANGED_EVENT,
+  getAutoStartProjectServers,
+  setAutoStartProjectServers,
   DASHBOARD_VISIBILITY_CHANGED_EVENT,
   ELEMENT_BREADCRUMB_ENABLED_CHANGED_EVENT,
   KEEP_DEV_SERVERS_RUNNING_LOCAL_CHANGED_EVENT,
@@ -19,6 +22,38 @@ import {
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
 }));
+
+describe('automatic project-server startup', () => {
+  beforeEach(() => vi.mocked(invoke).mockReset());
+
+  it('defaults off when reading the preference fails', async () => {
+    vi.mocked(invoke).mockRejectedValueOnce(new Error('unavailable'));
+    await expect(getAutoStartProjectServers()).resolves.toBe(false);
+  });
+
+  it.each([true, false])('reads saved %s', async (enabled) => {
+    vi.mocked(invoke).mockResolvedValueOnce(enabled);
+    await expect(getAutoStartProjectServers()).resolves.toBe(enabled);
+    expect(invoke).toHaveBeenCalledWith('get_auto_start_project_servers');
+  });
+
+  it('broadcasts only successful saves and propagates save failures', async () => {
+    const listener = vi.fn();
+    window.addEventListener(AUTO_START_PROJECT_SERVERS_LOCAL_CHANGED_EVENT, listener);
+    try {
+      vi.mocked(invoke).mockRejectedValueOnce(new Error('disk full'));
+      await expect(setAutoStartProjectServers(true)).rejects.toThrow('disk full');
+      expect(listener).not.toHaveBeenCalled();
+      vi.mocked(invoke).mockResolvedValueOnce(undefined);
+      await setAutoStartProjectServers(true);
+      expect(listener).toHaveBeenCalledOnce();
+      expect(listener.mock.calls[0]?.[0]).toMatchObject({ detail: true });
+      expect(invoke).toHaveBeenLastCalledWith('set_auto_start_project_servers', { enabled: true });
+    } finally {
+      window.removeEventListener(AUTO_START_PROJECT_SERVERS_LOCAL_CHANGED_EVENT, listener);
+    }
+  });
+});
 
 describe('dashboard visibility settings', () => {
   const invokeMock = vi.mocked(invoke);

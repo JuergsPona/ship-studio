@@ -8,6 +8,27 @@
 
 import { invoke } from '@tauri-apps/api/core';
 
+export const AUTO_START_PROJECT_SERVERS_CHANGED_EVENT = 'auto-start-project-servers-changed';
+export const AUTO_START_PROJECT_SERVERS_LOCAL_CHANGED_EVENT =
+  'shipstudio:auto-start-project-servers-changed';
+
+/** Automatic startup is opt-in; a failed read never authorizes a process spawn. */
+export async function getAutoStartProjectServers(): Promise<boolean> {
+  try {
+    return (await invoke<boolean>('get_auto_start_project_servers')) === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Notify local Settings surfaces only after persistence succeeds. */
+export async function setAutoStartProjectServers(enabled: boolean): Promise<void> {
+  await invoke('set_auto_start_project_servers', { enabled });
+  window.dispatchEvent(
+    new CustomEvent<boolean>(AUTO_START_PROJECT_SERVERS_LOCAL_CHANGED_EVENT, { detail: enabled })
+  );
+}
+
 /** Event fired after a dashboard visibility preference is persisted. */
 export const DASHBOARD_VISIBILITY_CHANGED_EVENT = 'shipstudio:dashboard-visibility-changed';
 /** Event fired after the workspace toolbar layout preference is persisted. */

@@ -13,7 +13,6 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   ActivityIcon,
   AddIcon,
@@ -27,7 +26,6 @@ import {
   ResetIcon,
   SearchIcon,
   SettingsIcon,
-  SlackIcon,
   NewWorkspaceIcon,
   SwitchWorkspaceIcon,
   DragHandleIcon,
@@ -237,8 +235,6 @@ interface Props {
 
 const SECTION_STORAGE_KEY = 'ship-studio:workspace-sidebar:collapsed';
 const PROJECT_EXPAND_STORAGE_KEY = 'ship-studio:workspace-sidebar:expanded-projects';
-const SLACK_INVITE_URL =
-  'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-41vbyaoo0-_pZWNPyMdvMoF6neuDYw7g';
 
 function readCollapsed(): Record<SectionId, boolean> {
   try {
@@ -457,6 +453,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   // 219, not 214: the top row gained Workflows and Inbox beside Home, and at the
   // old default the last one sat hard against the resize edge.
   const [sidebarWidth, setSidebarWidth] = useState(219);
+  const sidebarRef = useRef<HTMLElement>(null);
   const sidebarProjectSettingsModal = useModal('sidebarProjectSettings');
   const sidebarProjectRenameModal = useModal('sidebarProjectRename');
   const { showToast } = useOptionalToast();
@@ -1375,7 +1372,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   };
 
   const resizeSidebar = useCallback((clientX: number) => {
-    setSidebarWidth(Math.max(150, Math.min(clientX, 500)));
+    const sidebar = sidebarRef.current;
+    if (!sidebar) return;
+    setSidebarWidth(Math.max(150, Math.min(clientX - sidebar.getBoundingClientRect().left, 500)));
   }, []);
 
   const resizeSidebarBy = useCallback((delta: number) => {
@@ -1663,6 +1662,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   return (
     <>
       <aside
+        ref={sidebarRef}
         className={`workspace-sidebar${isSidebarHidden ? ' is-hidden' : ''}`}
         aria-label="Processes"
         style={sidebarStyle}
@@ -1858,15 +1858,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                   document.body
                 )
               : null}
-            <IconButton
-              variant="default"
-              className="workspace-sidebar-support"
-              icon={<SlackIcon size={12} />}
-              onClick={() => void openUrl(SLACK_INVITE_URL)}
-              title="Join the Ship Studio community on Slack"
-              aria-label="Support"
-              data-education-id="support-button"
-            />
             <SettingsMenu
               className="workspace-sidebar-settings-menu"
               onOpenSettings={appSettingsModal.open}

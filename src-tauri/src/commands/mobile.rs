@@ -2396,12 +2396,36 @@ pub async fn start_mobile_preview(
     window_label: String,
     platform: crate::state::Platform,
     preferred: Option<String>,
+    allow_start: Option<bool>,
 ) -> Result<MirrorInfo, CommandError> {
     // macOS-only for now: the iOS path needs Xcode/simctl, and the Android path
     // (adb/emulator/scrcpy) hasn't been validated on Windows. The frontend already
     // hides the mobile preview off macOS; this is the backend backstop.
     if !cfg!(target_os = "macos") {
         return Err("Mobile preview is currently available on macOS only.".into());
+    }
+
+    crate::utils::validate_project_path(&project_path)?;
+
+    // A tab remount may reattach, but cannot revive a stopped mirror without
+    // a permitted startup request. Check liveness before any boot/cleanup work.
+    if !allow_start.unwrap_or(false) {
+        let lock = crate::state::boot_lock_for(&project_path);
+        let _guard = lock.lock().await;
+        if let Some(existing) = crate::state::get_mobile_session(&project_path) {
+            if existing.platform == platform && serve_sim_alive(existing.serve_sim_port).await {
+                if platform == crate::state::Platform::Android {
+                    if android_device_present(&existing.udid).await {
+                        return Ok(android_mirror_info(&existing));
+                    }
+                } else {
+                    return Ok(reuse_mirror_info(&existing));
+                }
+            }
+        }
+        return Err(CommandError::expected(
+            "Mobile preview is stopped. Use Start server or Retry to start it.",
+        ));
     }
 
     // Android has its own boot + mirror transport (emulator + screenrecord→WS

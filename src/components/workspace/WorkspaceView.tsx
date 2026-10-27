@@ -170,6 +170,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     devServerPort,
     projectType,
     projectTypeResolved,
+    mobilePreviewRequestId,
     isRestartingDevServer,
     devCommands,
     devServerOutput,
@@ -472,7 +473,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     projectPath: currentProject.path,
     setIsPreviewHidden,
     setWorkspaceTab,
-    startDevServer: handleStartDevServer,
+    startDevServer: () => handleStartDevServer(true),
   });
   const toggleAgentPanel = useCallback(() => {
     if (!isAgentPanelHidden) {
@@ -481,7 +482,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     setIsAgentPanelHidden(!isAgentPanelHidden);
   }, [isAgentPanelHidden, setIsPreviewHidden]);
   const handleSelectPreview = useCallback(() => {
-    void handleStartDevServer();
+    void handleStartDevServer(true);
   }, [handleStartDevServer]);
 
   // Opening the inspect panel is the adoption signal for browser tools; the
@@ -552,7 +553,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     projectType,
     onSendToAgent: sendToClaude,
     showToast,
-    restartDevServer: handleRestartDevServer,
+    restartDevServer: () => handleRestartDevServer(true),
   });
 
   // Per-turn working-tree snapshots so users can undo/redo agent edits.
@@ -631,7 +632,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
     previewRunning: knownDevServerPort !== null,
     setIsPreviewHidden,
     setWorkspaceTab,
-    startDevServer: handleStartDevServer,
+    startDevServer: () => handleStartDevServer(true),
   });
 
   useWorkspaceTerminalShortcuts({
@@ -907,6 +908,12 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
                       setWorkspaceTab={setWorkspaceTab}
                       hasPreview={hasPreview}
                       projectTypeResolved={projectTypeResolved}
+                      mobilePreviewRequestId={mobilePreviewRequestId}
+                      serverStopped={
+                        currentDevServerSnapshot.status === 'not-running' ||
+                        currentDevServerSnapshot.status === 'stopped'
+                      }
+                      handleStartDevServer={handleStartDevServer}
                       previewConnectionEnabled={knownDevServerPort !== null}
                       serverAlreadyRunning={currentDevServerSnapshot.status === 'ready'}
                       serverInstanceId={currentDevServerSnapshot.instanceId}
@@ -1103,7 +1110,7 @@ const WorkspaceViewInner = memo(function WorkspaceViewInner({
             },
             onSubmitReviewBranchSwitch: (branch) => {
               void handleBranchSwitch(branch);
-              setTimeout(() => void handleRestartDevServer(), 1500);
+              setTimeout(() => void handleRestartDevServer(true), 1500);
             },
             onSubmitReviewSendToAgent: sendToClaude,
             onSubmitReviewResolveConflicts: (headBranch, baseBranch) =>

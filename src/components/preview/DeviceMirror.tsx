@@ -23,6 +23,8 @@ import { Tabs, TabsList, TabsTab } from '../primitives/Tabs';
 import { logger } from '../../lib/logger';
 import {
   startMobilePreview,
+  consumeMobilePreviewStart,
+  requestMobilePreviewStart,
   getSimulatorLaunchCommand,
   connectInputChannel,
   buildSessionId,
@@ -51,6 +53,8 @@ import { Spinner } from '../primitives/Spinner';
 import { BuildTerminal } from '../terminal/BuildTerminal';
 import { AndroidMirrorStage } from './AndroidMirrorStage';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import { getAutoStartProjectServers } from '../../lib/settings';
+import { ProjectServerStopped } from './ProjectServerStopped';
 
 interface DeviceMirrorProps {
   /** Project name, for guidance copy. */
@@ -62,7 +66,7 @@ interface DeviceMirrorProps {
 }
 
 type InputChannel = ReturnType<typeof connectInputChannel>;
-type Status = 'starting' | 'connected' | 'error';
+type Status = 'starting' | 'connected' | 'error' | 'stopped';
 /**
  * App-build progress, shown on the build panel's summary under the mirror.
  * - `building` — running, no verdict yet (the default while compiling)
@@ -142,6 +146,7 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
   const [mirror, setMirror] = useState<MirrorInfo | null>(null);
   const [launchStatus, setLaunchStatus] = useState<LaunchStatus>('none');
   const [buildCommand, setBuildCommand] = useState<string | null>(null);
+  const [allowBuildSpawn, setAllowBuildSpawn] = useState(false);
   const [buildOpen, setBuildOpen] = useState(true);
   const [needsInstall, setNeedsInstall] = useState(false);
   // Whether the build command is still running. Expo (`expo run:ios`) and Flutter
@@ -265,7 +270,16 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
       setBuildAlive(false);
       try {
         logger.info('[DeviceMirror] starting backend mobile preview', { platform });
-        const info = await startMobilePreview(projectPath, getWindowLabel(), platform);
+        const allowStart =
+          consumeMobilePreviewStart(projectPath) || (await getAutoStartProjectServers());
+        if (cancelled) return;
+        const info = await startMobilePreview(
+          projectPath,
+          getWindowLabel(),
+          platform,
+          undefined,
+          allowStart
+        );
         if (cancelled) return;
         logger.info('[DeviceMirror] preview started', { stream: info.stream_url, platform });
         // iOS drives input over serve-sim's WebSocket from here; Android's canvas
@@ -286,10 +300,15 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
 
         // Auto-launch the app build into the embedded terminal, seeding any
         // verdict the backend session already holds (reuse path).
+        setAllowBuildSpawn(allowStart);
         void resolveBuild(platform, info.udid, info.launch_status);
       } catch (err) {
         if (cancelled) return;
         const detail = formatCommandError(asCommandError(err));
+        if (detail.includes('Mobile preview is stopped')) {
+          setStatus('stopped');
+          return;
+        }
         logger.error('[DeviceMirror] failed', { error: detail });
         // Remembered so the heal-loop's give-up message can cite the last
         // concrete failure instead of a bare "lost connection".
@@ -316,17 +335,23 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
   // Manual restart (button / "Try again") is a fresh user intent — refill the
   // heal budget so auto-heal gets its full allowance again.
   const restart = useCallback(() => {
+    requestMobilePreviewStart(projectPath);
     healAttemptsRef.current = 0;
     setAttempt((a) => a + 1);
-  }, []);
+  }, [projectPath]);
 
   // Switch the previewed platform. Changing `platform` re-runs the connect effect,
   // and the backend tears down the previous platform's session first. No-op if it's
   // already the active platform (avoids a needless teardown/reboot).
-  const switchPlatform = useCallback((next: Platform) => {
-    healAttemptsRef.current = 0;
-    setPlatform((prev) => (prev === next ? prev : next));
-  }, []);
+  const switchPlatform = useCallback(
+    (next: Platform) => {
+      if (platform === next) return;
+      requestMobilePreviewStart(projectPath);
+      healAttemptsRef.current = 0;
+      setPlatform((prev) => (prev === next ? prev : next));
+    },
+    [platform, projectPath]
+  );
 
   // Auto-heal: the MJPEG <img> fires onError when the stream drops (serve-sim
   // died). Rather than freeze on the last frame until the user clicks Restart, we
@@ -359,7 +384,13 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
     healAttemptsRef.current += 1;
     healTimerRef.current = window.setTimeout(() => {
       healTimerRef.current = null;
-      setAttempt((a) => a + 1); // reconnect; backend respawns the mirror
+      void getAutoStartProjectServers().then((enabled) => {
+        if (enabled) {
+          setAttempt((a) => a + 1);
+        } else {
+          setStatus('stopped');
+        }
+      });
     }, delay);
   }, []);
   // A healthy frame means the stream recovered — drop any pending heal and refill
@@ -703,6 +734,7 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
             >
               <BuildTerminal
                 sessionId={buildSessionId(projectPath)}
+                allowSpawn={allowBuildSpawn}
                 command={buildCommand}
                 cwd={projectPath}
                 isActive={buildOpen}
@@ -713,6 +745,17 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
           </div>
         )}
       </div>
+    );
+  }
+
+  if (status === 'stopped') {
+    return (
+      <ProjectServerStopped
+        onStart={() => {
+          restart();
+          return Promise.resolve();
+        }}
+      />
     );
   }
 

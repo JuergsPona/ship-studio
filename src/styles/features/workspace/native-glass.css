@@ -1,0 +1,97 @@
+/* The native window builder supplies this marker only to macOS app windows.
+   A single native material sits behind the webview; the shell exposes it while
+   the content wells stay opaque. Compact layouts keep their existing geometry. */
+:root[data-native-glass],
+:root[data-native-glass] body {
+  background: transparent;
+}
+
+:root[data-native-glass]
+  .app.workspace:not(:has(.compact-workspace, .projects-with-rail.is-compact)) {
+  box-sizing: border-box;
+  padding: 0 var(--space-08) var(--space-08);
+}
+
+/* Keep the titlebar at the native window origin so traffic lights, drag
+   regions and navigation controls retain their existing alignment. Its glass
+   surface also supplies the top of the frame. */
+:root[data-native-glass] .workspace-titlebar {
+  margin-inline: calc(-1 * var(--space-08));
+  background: transparent;
+  border-bottom-color: transparent;
+}
+
+:root[data-native-glass] .workspace-sidebar,
+:root[data-native-glass] .workspace-sidebar .sidebar-project-body,
+:root[data-native-glass]
+  .app.workspace-home
+  .workspace-sidebar.is-hidden
+  .workspace-sidebar-top-row {
+  background: transparent;
+}
+
+/* The footer no longer needs a solid surface to hide scrolling rows: give
+   its controls their own space instead of overlapping the scroll area. */
+:root[data-native-glass] .workspace-sidebar-footer {
+  margin-top: 0;
+  padding-top: var(--space-08);
+}
+
+:root[data-native-glass] .workspace-sidebar-footer-actions::before,
+:root[data-native-glass]
+  .app.workspace-home
+  .workspace-sidebar.is-hidden
+  .workspace-sidebar-top-row::before,
+:root[data-native-glass]
+  .app.workspace-home
+  .workspace-sidebar.is-hidden
+  .workspace-sidebar-top-row::after {
+  display: none;
+}
+
+/* The old fixed dividers start at viewport zero. The resize handle already
+   follows the inset flex layout, so anchor the sidebar divider locally too. */
+:root[data-native-glass] .app.workspace .workspace-sidebar::before {
+  display: none;
+}
+
+:root[data-native-glass] .app.workspace .workspace-sidebar::after {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+}
+
+/* Home navigation shares the native titlebar band. Compensate for the shell
+   inset rather than moving either the controls or the traffic lights. */
+:root[data-native-glass] .app.workspace-home .workspace-sidebar-top-row {
+  padding-inline-start: calc(
+    var(--space-32) + var(--space-32) + var(--spacing-md) + var(--button-gap)
+  );
+}
+
+/* Home has no shared titlebar. Its content well starts below an 8px top rim;
+   the sidebar's own navigation row remains at the native window top. */
+:root[data-native-glass]
+  .projects-with-rail:not(.is-compact)
+  > :is(.app, .dashboard-with-changelog, .project-loading-body) {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  margin-block-start: var(--space-08);
+}
+
+:root[data-native-glass] .workspace-main,
+:root[data-native-glass]
+  .projects-with-rail:not(.is-compact)
+  > :is(.app, .dashboard-with-changelog, .project-loading-body) {
+  background: var(--surface-app);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+/* Boot and onboarding screens have no glass chrome yet. Keep a readable
+   solid surface until the workspace or Home shell takes over. */
+:root[data-native-glass] .app:not(.workspace) {
+  background: var(--surface-app);
+}

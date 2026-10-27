@@ -11,8 +11,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useProjectLifecycle, type UseProjectLifecycleParams } from './useProjectLifecycle';
+import { getAutoStartProjectServers } from '../lib/settings';
+
+vi.mock('../lib/settings', () => ({
+  getAutoStartProjectServers: vi.fn().mockResolvedValue(false),
+}));
 
 vi.mock('../lib/project', () => ({
   getAutoAcceptMode: vi.fn().mockResolvedValue(false),
@@ -81,6 +86,7 @@ vi.mock('../lib/session', () => ({
 import { invoke } from '@tauri-apps/api/core';
 import { registerExternalProject } from '../lib/external-projects';
 import { logger } from '../lib/logger';
+import { findAndReservePort } from '../lib/window';
 
 type Fn = ReturnType<typeof vi.fn>;
 
@@ -91,6 +97,7 @@ function createParams(overrides?: Partial<UseProjectLifecycleParams>): UseProjec
     currentProjectPathRef: { current: null },
     setView: vi.fn(),
     setDevServerPort: vi.fn(),
+    prepareServerForProject: vi.fn().mockResolvedValue('nextjs'),
     startServerForProject: vi.fn().mockResolvedValue('nextjs'),
     isServerRunning: vi.fn(() => false),
     restartDevServer: vi.fn().mockResolvedValue(undefined),
@@ -116,6 +123,134 @@ function createParams(overrides?: Partial<UseProjectLifecycleParams>): UseProjec
     ...overrides,
   };
 }
+
+describe('automatic project-server startup policy', () => {
+  const project = { name: 'demo', path: '/x/demo', thumbnail: null };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(invoke).mockResolvedValue(null);
+    vi.mocked(getAutoStartProjectServers).mockResolvedValue(false);
+  });
+
+  it('opens a project and prepares metadata without reserving or killing ports', async () => {
+    const params = createParams();
+    const { result } = renderHook(() => useProjectLifecycle(params));
+    await act(async () => {
+      await result.current.handleSelectProject(project);
+    });
+    expect(params.prepareServerForProject).toHaveBeenCalledWith(project.path);
+    expect(params.startServerForProject).not.toHaveBeenCalled();
+    expect(findAndReservePort).not.toHaveBeenCalled();
+    expect(vi.mocked(invoke).mock.calls.some(([command]) => command === 'kill_port')).toBe(false);
+    expect(params.setView).toHaveBeenCalledWith('workspace');
+  });
+
+  it('preserves automatic startup when opted in', async () => {
+    vi.mocked(getAutoStartProjectServers).mockResolvedValue(true);
+    const params = createParams();
+    const { result } = renderHook(() => useProjectLifecycle(params));
+    await act(async () => {
+      await result.current.handleSelectProject(project);
+    });
+    expect(params.startServerForProject).toHaveBeenCalledWith(
+      project.path,
+      project.name,
+      3000,
+      'main'
+    );
+    expect(params.prepareServerForProject).not.toHaveBeenCalled();
+  });
+
+  it('blocks Preview-triggered startup but allows explicit Start', async () => {
+    const params = createParams({
+      currentProject: project,
+      currentProjectPathRef: { current: project.path },
+    });
+    const { result } = renderHook(() => useProjectLifecycle(params));
+    await act(async () => {
+      await result.current.handleStartDevServer(true);
+    });
+    expect(findAndReservePort).not.toHaveBeenCalled();
+    expect(params.startServerForProject).not.toHaveBeenCalled();
+    await act(async () => {
+      await result.current.handleStartDevServer();
+    });
+    expect(params.startServerForProject).toHaveBeenCalledOnce();
+  });
+
+  it('does not restart a retained running server when opening with automatic startup off', async () => {
+    const params = createParams({ isServerRunning: () => true });
+    const { result } = renderHook(() => useProjectLifecycle(params));
+    await act(async () => {
+      await result.current.handleSelectProject(project);
+    });
+    expect(params.startServerForProject).not.toHaveBeenCalled();
+    expect(params.prepareServerForProject).not.toHaveBeenCalled();
+    expect(findAndReservePort).not.toHaveBeenCalled();
+  });
+
+  it('does not authorize startup while the preference read is pending', async () => {
+    let resolveRead: (enabled: boolean) => void = () => {};
+    vi.mocked(getAutoStartProjectServers).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolveRead = resolve;
+      })
+    );
+    const params = createParams();
+    const { result } = renderHook(() => useProjectLifecycle(params));
+    let opening: Promise<void> | undefined;
+    act(() => {
+      opening = result.current.handleSelectProject(project);
+    });
+    await waitFor(() => expect(getAutoStartProjectServers).toHaveBeenCalled());
+    expect(findAndReservePort).not.toHaveBeenCalled();
+    expect(params.startServerForProject).not.toHaveBeenCalled();
+    await act(async () => {
+      resolveRead(false);
+      await opening;
+    });
+    expect(params.prepareServerForProject).toHaveBeenCalledWith(project.path);
+  });
+
+  it('ignores an opening superseded during a slow preference read', async () => {
+    let resolveRead: (enabled: boolean) => void = () => {};
+    vi.mocked(getAutoStartProjectServers).mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolveRead = resolve;
+      })
+    );
+    const params = createParams();
+    const { result } = renderHook(() => useProjectLifecycle(params));
+    let first: Promise<void> | undefined;
+    act(() => {
+      first = result.current.handleSelectProject(project);
+    });
+    await waitFor(() => expect(getAutoStartProjectServers).toHaveBeenCalled());
+    await act(async () => {
+      await result.current.handleSelectProject({ ...project, path: '/x/other' });
+      resolveRead(true);
+      await first;
+    });
+    expect(params.prepareServerForProject).toHaveBeenCalledExactlyOnceWith('/x/other');
+    expect(params.startServerForProject).not.toHaveBeenCalled();
+  });
+
+  it('finishing dependency installation does not start a server when opted out', async () => {
+    const params = createParams({
+      currentProject: project,
+      currentProjectPathRef: { current: project.path },
+    });
+    const { result } = renderHook(() => useProjectLifecycle(params));
+    act(() => result.current.handleRunInstall(project.path, 'pnpm'));
+    await act(async () => {
+      await result.current.handleInstallTerminalExit(0);
+    });
+    expect(params.clearNeedsInstall).toHaveBeenCalledWith(project.path);
+    expect(params.restartDevServer).not.toHaveBeenCalled();
+    expect(params.startServerForProject).not.toHaveBeenCalled();
+  });
+});
 
 describe('handleImportLocalFolder — expected-refusal routing (#518/#535)', () => {
   beforeEach(() => {

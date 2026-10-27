@@ -56,7 +56,6 @@ import { useProjectListData } from './useProjectListData';
 import { ProjectBulkActionsBar } from './ProjectBulkActionsBar';
 import { ProjectBulkActionConfirm } from './ProjectBulkActionConfirm';
 import { DashboardPreferencesCard } from './DashboardPreferencesCard';
-import { DashboardCommunityBanner } from './DashboardCommunityBanner';
 import { GitHubCalendar } from './GitHubCalendar';
 import { useModal } from '../../contexts/ModalContext';
 import { useDashboardVisibility } from '../../hooks/useDashboardVisibility';
@@ -179,13 +178,10 @@ export function ProjectList({
   const {
     dashboardHeaderHidden,
     calendarHidden,
-    slackCtaHidden,
     hideDashboardHeader,
     hideCalendar,
-    hideSlackCta,
     setDashboardHeaderHidden,
     setCalendarHidden,
-    setSlackCtaHidden,
   } = useDashboardVisibility();
 
   // Search and sort state
@@ -564,8 +560,6 @@ export function ProjectList({
       <div className="project-list dashboard">
         {!dashboardHeaderHidden && <DashboardHeader onHide={hideDashboardHeader} />}
 
-        {!slackCtaHidden && <DashboardCommunityBanner onHide={hideSlackCta} />}
-
         {!calendarHidden && (
           <GitHubCalendar
             username={githubUsername}
@@ -798,7 +792,6 @@ export function ProjectList({
           onClose={() => setShowSettings(false)}
           onDashboardHeaderHiddenChange={setDashboardHeaderHidden}
           onCalendarHiddenChange={setCalendarHidden}
-          onSlackCtaHiddenChange={setSlackCtaHidden}
           onProjectsRootChanged={() => void loadProjects()}
         />
 

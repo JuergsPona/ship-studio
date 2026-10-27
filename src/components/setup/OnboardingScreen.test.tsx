@@ -125,7 +125,6 @@ vi.mock('./OnboardingTerminal', () => ({
 vi.mock('../icons', () => ({
   CheckIcon: ({ size }: { size: number }) => <span data-testid="check-icon" data-size={size} />,
   SuccessIcon: ({ size }: { size: number }) => <span data-testid="success-icon" data-size={size} />,
-  SlackIcon: ({ size }: { size: number }) => <span data-testid="slack-icon" data-size={size} />,
 }));
 
 vi.mock('@tauri-apps/plugin-opener', () => ({
@@ -532,16 +531,15 @@ describe('OnboardingScreen', () => {
     vi.useRealTimers();
   });
 
-  // ============ Slack CTA ============
-
-  it('shows Slack CTA link on wizard screen', async () => {
+  it('renders the wizard without a Slack CTA', async () => {
     mockInvoke('get_full_setup_status', FRESH_STATUS);
 
     render(<OnboardingScreen onComplete={onComplete} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Join Slack')).toBeInTheDocument();
+      expect(screen.getByText('Quick Setup')).toBeInTheDocument();
     });
+    expect(screen.queryByRole('button', { name: /Join Slack/i })).not.toBeInTheDocument();
   });
 
   // ============ Items render ============

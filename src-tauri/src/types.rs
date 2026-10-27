@@ -883,6 +883,9 @@ pub struct AppState {
     /// automatic stop behavior.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keep_dev_servers_running: Option<bool>,
+    /// Automatic project-server startup is opt-in, including existing installs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_start_project_servers: Option<bool>,
     /// Whether the dashboard home header is hidden
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dashboard_header_hidden: Option<bool>,

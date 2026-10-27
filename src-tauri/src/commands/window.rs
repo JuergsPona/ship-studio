@@ -7,6 +7,33 @@ use crate::commands::setup::{read_app_state, write_app_state};
 use crate::errors::CommandError;
 use tauri::Window;
 
+/// Native glass behind the webview; opaque content surfaces expose it only in
+/// the window frame and sidebar. Tauri uses Sidebar on macOS below 26.
+#[cfg(target_os = "macos")]
+pub fn with_macos_glass<'a, R: tauri::Runtime, M: tauri::Manager<R>>(
+    builder: tauri::WebviewWindowBuilder<'a, R, M>,
+) -> tauri::WebviewWindowBuilder<'a, R, M> {
+    use tauri::window::{Effect, EffectsBuilder};
+
+    builder
+        .background_color(tauri::utils::config::Color(0, 0, 0, 0))
+        .effects(
+            EffectsBuilder::new()
+                .effect(Effect::LiquidGlassRegular)
+                .effect(Effect::Sidebar)
+                .build(),
+        )
+        // Main frame only: never alter the project's preview iframe. Mark the
+        // document from native setup so browsers and other platforms stay solid.
+        .initialization_script(
+            r#"
+            document.addEventListener('DOMContentLoaded', () => {
+                document.documentElement.setAttribute('data-native-glass', 'true');
+            }, { once: true });
+            "#,
+        )
+}
+
 /// Leading inset of the close button, matching AppKit's own placement for a
 /// standard titled window. That placement — not the one a 46pt custom titlebar
 /// would suggest — is what the shipped build renders, so it is the reference

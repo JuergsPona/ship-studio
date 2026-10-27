@@ -65,6 +65,7 @@ interface DevServerProps {
   devServerPort: number;
   projectType: ProjectType;
   projectTypeResolved: boolean;
+  mobilePreviewRequestId: number;
   isRestartingDevServer: boolean;
   /** `custom`: the user-configured dev command. `generic`: what a `generic`
    *  project actually runs — the custom command, else its package.json `dev`
@@ -233,10 +234,9 @@ interface LifecycleProps {
   showAutoAcceptWarning: boolean;
   setShowAutoAcceptWarning: (show: boolean) => void;
   handleBackToProjects: () => void;
-  handleRestartDevServer: () => Promise<void>;
-  /** Start the dev server on demand — fired when the Preview tab is selected
-   *  while nothing is running, so picking Preview always yields a preview. */
-  handleStartDevServer: () => Promise<void>;
+  handleRestartDevServer: (automatic?: boolean) => Promise<void>;
+  /** Explicit Start bypasses the opt-in. Preview/navigation callers pass true. */
+  handleStartDevServer: (automatic?: boolean) => Promise<void>;
   handleGitHubStatusChange: () => void;
   handlePreviewReady: () => void;
   sendToClaude: (text: string) => unknown;

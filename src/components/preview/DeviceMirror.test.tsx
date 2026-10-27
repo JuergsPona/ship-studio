@@ -10,6 +10,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { invoke } from '@tauri-apps/api/core';
+import { consumeMobilePreviewStart } from '../../lib/mobile';
 
 // ============ Module-level mocks ============
 
@@ -49,6 +51,36 @@ const baseProps = {
 
 beforeEach(() => {
   invokeResults.clear();
+  vi.mocked(invoke).mockClear();
+  consumeMobilePreviewStart(baseProps.projectPath);
+});
+
+describe('DeviceMirror startup authorization', () => {
+  it('reattaches automatically but requires explicit Start to revive a stopped session', async () => {
+    mockInvoke('detect_mobile_targets', { ios: true, android: false });
+    mockInvoke('mobile_platform_support', { ios: true, android: false });
+    invokeResults.set('start_mobile_preview', { error: new Error('Mobile preview is stopped') });
+    render(<DeviceMirror {...baseProps} />);
+    const retry = await screen.findByRole('button', { name: 'Start server' });
+    expect(invoke).toHaveBeenCalledWith('start_mobile_preview', {
+      projectPath: baseProps.projectPath,
+      windowLabel: 'main',
+      platform: 'ios',
+      preferred: null,
+      allowStart: false,
+    });
+    mockInvokePending('start_mobile_preview');
+    fireEvent.click(retry);
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('start_mobile_preview', {
+        projectPath: baseProps.projectPath,
+        windowLabel: 'main',
+        platform: 'ios',
+        preferred: null,
+        allowStart: true,
+      })
+    );
+  });
 });
 
 describe('DeviceMirror — agent-driven setup (fresh user, no toolchain)', () => {

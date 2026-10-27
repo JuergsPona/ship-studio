@@ -49,7 +49,6 @@ import { checkGitHubCliStatus } from '../../lib/github';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { withTimeout, TimeoutError } from '../../lib/withTimeout';
 import { stripAnsi } from '../../lib/ansi';
-import { SLACK_INVITE_URL } from '../../lib/links';
 import {
   detectAlreadyLoggedIn,
   extractTerminalError,
@@ -57,7 +56,6 @@ import {
   isNodeMissingError,
 } from '../../lib/terminalDiagnostics';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { SlackIcon } from '@/components/icons';
 import {
   alreadySignedInMessage,
   authFailureMessage,
@@ -780,17 +778,6 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
             </div>
           </div>
         )}
-
-        <div className="onboarding-slack-cta">
-          <SlackIcon size={18} />
-          <span>
-            <strong>Having problems getting set up?</strong> Join the Slack channel and we'll help
-            you out!
-          </span>
-          <Button variant="variable" onClick={() => void openUrl(SLACK_INVITE_URL)}>
-            Join Slack
-          </Button>
-        </div>
       </div>
     </div>
   );

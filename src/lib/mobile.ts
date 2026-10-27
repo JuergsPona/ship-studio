@@ -118,17 +118,30 @@ export async function getSimulatorLaunchCommand(
  * embeds; the app build is launched separately as a pty_session (see
  * {@link buildSessionId}).
  */
+const pendingPreviewStarts = new Set<string>();
+
+/** A one-shot start request from a permitted lifecycle action or explicit Retry. */
+export function requestMobilePreviewStart(projectPath: string): void {
+  pendingPreviewStarts.add(projectPath);
+}
+
+export function consumeMobilePreviewStart(projectPath: string): boolean {
+  return pendingPreviewStarts.delete(projectPath);
+}
+
 export async function startMobilePreview(
   projectPath: string,
   windowLabel: string,
   platform: Platform,
-  preferred?: string
+  preferred?: string,
+  allowStart = false
 ): Promise<MirrorInfo> {
   return invoke<MirrorInfo>('start_mobile_preview', {
     projectPath,
     windowLabel,
     platform,
     preferred: preferred ?? null,
+    allowStart,
   });
 }
 

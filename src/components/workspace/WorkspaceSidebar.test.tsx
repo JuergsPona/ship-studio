@@ -144,6 +144,25 @@ describe('WorkspaceSidebar project activity indicator', () => {
     sessionRegistry._resetForTests();
   });
 
+  it('resizes relative to the sidebar origin inside the glass frame', () => {
+    render(<WorkspaceSidebar {...sidebarProps()} />, { wrapper: Providers });
+    const sidebar = screen.getByRole('complementary', { name: 'Processes' });
+    Object.defineProperty(sidebar, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 8 }),
+    });
+    const handle = screen.getByRole('separator', { name: 'Resize Project Sidebar' });
+
+    fireEvent(handle, pointer('pointerdown', 227, 100));
+    fireEvent(handle, pointer('pointermove', 308, 100));
+    fireEvent(handle, pointer('pointerup', 308, 100));
+
+    expect(sidebar).toHaveStyle({ width: '300px' });
+    expect(handle).toHaveAttribute('aria-valuenow', '300');
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    expect(sidebar).toHaveStyle({ width: '290px' });
+  });
+
   it('uses the same icon-only ghost treatment for Home as the project titlebar', async () => {
     render(<WorkspaceSidebar {...sidebarProps()} />, { wrapper: Providers });
 
@@ -562,10 +581,7 @@ describe('WorkspaceSidebar project activity indicator', () => {
     expect(openProjectButton).toHaveClass('button--ghost');
     expect(openProjectButton.closest('.workspace-sidebar-active-actions')).toBeInTheDocument();
     expect(openProjectButton.closest('.workspace-sidebar-scroll')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Support' })).toHaveClass(
-      'button--default',
-      'button--icon-only'
-    );
+    expect(screen.queryByRole('button', { name: 'Support' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Settings & Help' })).toHaveClass(
       'button--default',
       'button--icon-only'

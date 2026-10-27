@@ -49,11 +49,9 @@ import '../../styles/features/issue-reports.css';
 
 const SECURITY_URL = 'https://github.com/ship-studio/ship-studio/security/advisories/new';
 const DISCUSSIONS_URL = 'https://github.com/ship-studio/ship-studio/discussions';
-const SLACK_URL =
-  'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-41vbyaoo0-_pZWNPyMdvMoF6neuDYw7g';
 
 type IssueModalStep = 'form' | 'evidence' | 'review' | 'success' | 'uncertain';
-type IssueReportSelection = IssueKind | 'security' | 'discussion' | 'slack';
+type IssueReportSelection = IssueKind | 'security' | 'discussion';
 type DraftWriteState = 'idle' | 'saving' | 'saved' | 'error';
 
 const contactRoutes = {
@@ -69,12 +67,6 @@ const contactRoutes = {
     description: 'Open GitHub Discussions to ask a question or start a conversation.',
     action: 'Open GitHub Discussions',
     url: DISCUSSIONS_URL,
-  },
-  slack: {
-    title: 'Community Slack',
-    description: 'Join the Ship Studio community on Slack for help and discussion.',
-    action: 'Open community Slack',
-    url: SLACK_URL,
   },
 } as const;
 
@@ -208,9 +200,7 @@ function PublicIssueModal({
   const issueKind: IssueKind | null =
     selectedKind === 'bug' || selectedKind === 'feature' ? selectedKind : null;
   const contactSelection =
-    selectedKind === 'security' || selectedKind === 'discussion' || selectedKind === 'slack'
-      ? selectedKind
-      : null;
+    selectedKind === 'security' || selectedKind === 'discussion' ? selectedKind : null;
   const isBug = issueKind === 'bug';
   const evidenceChoice = issueKind ? evidenceChoices[issueKind] : null;
   const issueDraft = issueKind === 'bug' ? bugDraft : issueKind === 'feature' ? featureDraft : null;
@@ -714,7 +704,6 @@ function PublicIssueModal({
                 <optgroup label="Other ways to get help">
                   <option value="security">Security vulnerability</option>
                   <option value="discussion">Question or discussion</option>
-                  <option value="slack">Community Slack</option>
                 </optgroup>
               </select>
             </label>
@@ -1689,8 +1678,6 @@ function modalTitleFor(kind: IssueReportSelection, step: IssueModalStep): string
       return 'Report a security vulnerability';
     case 'discussion':
       return 'Ask a question';
-    case 'slack':
-      return 'Join the community';
   }
 }
 

@@ -103,7 +103,7 @@ events but does not emit pageviews — the `setup_*` funnel below is the record.
 
 | Event | Properties |
 |---|---|
-| `setting_changed` | `setting`, `value` — one event for every settings toggle. `setting` is one of `analytics` (only ever `true`; the opt-out can't send), `calendar_visible`, `terminal_gpu`, `compact_workspace_toolbar`, `thumbnails`, `spotify_widget`, `keep_dev_servers_running`, `projects_root` (`value` is whether the root is now custom) |
+| `setting_changed` | `setting`, `value` — one event for every settings toggle. `setting` is one of `analytics` (only ever `true`; the opt-out can't send), `calendar_visible`, `terminal_gpu`, `compact_workspace_toolbar`, `thumbnails`, `spotify_widget`, `keep_dev_servers_running`, `auto_start_project_servers`, `projects_root` (`value` is whether the root is now custom) |
 | `thumbnail_consent_answered` | `allowed` — the user's answer to the first-run "Preview thumbnails" explainer (#160) |
 
 ### Dev server & dependencies

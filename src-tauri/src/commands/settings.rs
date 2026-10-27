@@ -12,6 +12,24 @@ use tauri_plugin_dialog::DialogExt;
 const DEFAULT_APP_ICON: &str = "brand";
 const APP_ICON_IDS: &[&str] = &["brand", "dark", "light"];
 
+/// Whether opening a project or showing Preview may start its servers.
+#[tauri::command]
+#[tracing::instrument]
+pub fn get_auto_start_project_servers() -> Result<bool, CommandError> {
+    Ok(read_app_state().auto_start_project_servers.unwrap_or(false))
+}
+
+/// Persist the opt-in and synchronize every open window.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub fn set_auto_start_project_servers(app: AppHandle, enabled: bool) -> Result<(), CommandError> {
+    let mut state = read_app_state();
+    state.auto_start_project_servers = Some(enabled);
+    write_app_state(&state)?;
+    let _ = app.emit("auto-start-project-servers-changed", enabled);
+    Ok(())
+}
+
 fn normalized_app_icon(value: Option<&str>) -> &'static str {
     match value {
         Some(icon) if APP_ICON_IDS.contains(&icon) => match icon {
@@ -448,6 +466,22 @@ pub async fn pick_projects_root(app: AppHandle) -> Result<Option<String>, Comman
 #[cfg(test)]
 mod tests {
     use super::{normalized_app_icon, validate_app_icon};
+    use crate::types::AppState;
+
+    #[test]
+    fn automatic_startup_is_opt_in_and_round_trips() {
+        let existing: AppState = serde_json::from_str("{}").unwrap();
+        assert!(!existing.auto_start_project_servers.unwrap_or(false));
+        for enabled in [true, false] {
+            let state = AppState {
+                auto_start_project_servers: Some(enabled),
+                ..AppState::default()
+            };
+            let json = serde_json::to_string(&state).unwrap();
+            let restored: AppState = serde_json::from_str(&json).unwrap();
+            assert_eq!(restored.auto_start_project_servers, Some(enabled));
+        }
+    }
 
     #[test]
     fn accepts_the_three_supported_icons() {

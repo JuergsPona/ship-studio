@@ -70,6 +70,7 @@ pub async fn open_project_in_new_window(
             .title_bar_style(tauri::TitleBarStyle::Overlay)
             .traffic_light_position(tauri::LogicalPosition::new(16.0, 32.0))
             .hidden_title(true);
+        builder = crate::commands::window::with_macos_glass(builder);
     }
 
     let window = builder
@@ -177,6 +178,7 @@ pub fn spawn_blank_window(app: &AppHandle) -> Result<String, String> {
             .title_bar_style(tauri::TitleBarStyle::Overlay)
             .traffic_light_position(tauri::LogicalPosition::new(16.0, 32.0))
             .hidden_title(true);
+        builder = crate::commands::window::with_macos_glass(builder);
     }
 
     let window = builder

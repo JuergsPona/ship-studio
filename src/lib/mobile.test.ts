@@ -1,5 +1,34 @@
-import { describe, it, expect } from 'vitest';
-import { classifyBuildOutput, appIdFromLog } from './mobile';
+import { describe, it, expect, vi } from 'vitest';
+import { invoke } from '@tauri-apps/api/core';
+import {
+  classifyBuildOutput,
+  appIdFromLog,
+  requestMobilePreviewStart,
+  consumeMobilePreviewStart,
+  startMobilePreview,
+} from './mobile';
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
+
+describe('mobile startup authorization', () => {
+  it('consumes explicit authorization once per project', () => {
+    requestMobilePreviewStart('/mobile-a');
+    expect(consumeMobilePreviewStart('/mobile-b')).toBe(false);
+    expect(consumeMobilePreviewStart('/mobile-a')).toBe(true);
+    expect(consumeMobilePreviewStart('/mobile-a')).toBe(false);
+  });
+
+  it('defaults to reattachment without authorizing a new backend process', async () => {
+    await startMobilePreview('/mobile', 'main', 'ios');
+    expect(invoke).toHaveBeenLastCalledWith('start_mobile_preview', {
+      projectPath: '/mobile',
+      windowLabel: 'main',
+      platform: 'ios',
+      preferred: null,
+      allowStart: false,
+    });
+  });
+});
 
 describe('classifyBuildOutput', () => {
   it('returns null while the build is still running', () => {

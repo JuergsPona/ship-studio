@@ -349,7 +349,7 @@ describe('IssueReportModals', () => {
     );
   });
 
-  it('keeps discussion and community routes outside public issue submission', async () => {
+  it('keeps discussion routes outside public issue submission', async () => {
     mockReportCommands();
     renderReport();
     await openBugForm();
@@ -360,12 +360,6 @@ describe('IssueReportModals', () => {
         guidance: /Open GitHub Discussions to ask a question or start a conversation/i,
         action: 'Open GitHub Discussions',
         url: 'https://github.com/ship-studio/ship-studio/discussions',
-      },
-      {
-        type: 'slack',
-        guidance: /Join the Ship Studio community on Slack/i,
-        action: 'Open community Slack',
-        url: 'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-41vbyaoo0-_pZWNPyMdvMoF6neuDYw7g',
       },
     ] as const;
 

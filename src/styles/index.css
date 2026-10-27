@@ -135,6 +135,9 @@
 @import './features/team/threads.css';
 @import './features/team/workspace.css';
 
+/* Native window chrome overrides the solid feature surfaces on macOS only. */
+@import './features/workspace/native-glass.css';
+
 /* Modes */
 @import './modes/education-mode.css';
 @import './modes/code-mode.css';
